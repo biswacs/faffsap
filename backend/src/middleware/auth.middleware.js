@@ -9,7 +9,6 @@ const authMiddleware = async (req, res, next) => {
       console.log("[authMiddleware] No authorization header found");
       return res.status(401).json({
         message: "Authorization header missing",
-        shouldLogout: true,
       });
     }
 
@@ -22,13 +21,12 @@ const authMiddleware = async (req, res, next) => {
         id: decoded.userId || decoded.id,
         isActive: true,
       },
-      attributes: ["id", "email", "name"],
+      attributes: ["id", "username"],
     });
 
     if (!user) {
       return res.status(401).json({
         message: "User not found or inactive",
-        shouldLogout: true,
       });
     }
 
@@ -38,9 +36,32 @@ const authMiddleware = async (req, res, next) => {
   } catch (error) {
     res.status(401).json({
       message: "Please authenticate",
-      shouldLogout: true,
     });
   }
 };
+const authenticateSocket = async (socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+    if (!token) {
+      return next(new Error("Authentication error"));
+    }
 
-export default authMiddleware;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findOne({
+      where: { id: decoded.id, isActive: true },
+      attributes: ["id", "username"],
+    });
+
+    if (!user) {
+      return next(new Error("User not found"));
+    }
+
+    socket.userId = user.id;
+    socket.username = user.username;
+    next();
+  } catch (error) {
+    next(new Error("Authentication error"));
+  }
+};
+
+export { authMiddleware, authenticateSocket };

@@ -17,10 +17,14 @@ Message.belongsTo(Conversation, {
 User.belongsToMany(Conversation, {
   through: ConversationMember,
   as: "conversations",
+  foreignKey: "userId",
+  otherKey: "conversationId",
 });
 Conversation.belongsToMany(User, {
   through: ConversationMember,
   as: "members",
+  foreignKey: "conversationId",
+  otherKey: "userId",
 });
 
 Message.hasMany(ReadReceipt, { foreignKey: "messageId", as: "readReceipts" });

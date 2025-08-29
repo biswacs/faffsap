@@ -3,86 +3,118 @@ import {
   ConversationMember,
   User,
   Message,
+  sequelize,
+  ReadReceipt,
 } from "../schemas/index.js";
 
-export const createConversation = async (req, res) => {
+const getUserConversations = async (req, res) => {
   try {
-    const { type, name, memberIds } = req.body;
-    const { userId } = req.user;
-
-    const conversation = await Conversation.create({
-      type,
-      name: type === "private" ? null : name,
-      lastMessageAt: new Date(),
-    });
-
-    const members = [userId, ...memberIds];
-    const conversationMembers = members.map((memberId) => ({
-      conversationId: conversation.id,
-      userId: memberId,
-    }));
-
-    await ConversationMember.bulkCreate(conversationMembers);
-
-    res.status(201).json({
-      success: true,
-      data: conversation,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-export const getUserConversations = async (req, res) => {
-  try {
-    const { userId } = req.user;
+    const { id: userId } = req.user;
 
     const conversations = await Conversation.findAll({
       include: [
         {
-          model: ConversationMember,
-          where: { userId },
-          include: [
-            {
-              model: User,
-              attributes: ["id", "name", "email"],
-            },
-          ],
+          model: User,
+          as: "members",
+          through: { attributes: [] },
+          attributes: ["id", "username", "isActive"],
         },
         {
           model: Message,
+          as: "messages",
           limit: 1,
           order: [["createdAt", "DESC"]],
           include: [
             {
               model: User,
-              attributes: ["id", "name"],
+              as: "sender",
+              attributes: ["id", "username"],
             },
           ],
         },
       ],
+      where: { type: "private" },
       order: [["lastMessageAt", "DESC"]],
     });
 
+    const userConversations = conversations.filter((conversation) =>
+      conversation.members.some((member) => member.id === userId)
+    );
+
+    const transformedConversations = await Promise.all(
+      userConversations.map(async (conversation) => {
+        const otherUser = conversation.members.find(
+          (member) => member.id !== userId
+        );
+
+        const lastMessage = conversation.messages[0];
+
+        // Get unread message count for this conversation using a separate query
+        const unreadCount = await Message.count({
+          where: {
+            conversationId: conversation.id,
+            senderId: { [sequelize.Sequelize.Op.ne]: userId },
+          },
+        });
+
+        // Get count of messages that have been read by this user
+        const readCount = await ReadReceipt.count({
+          where: {
+            userId: userId,
+          },
+          include: [
+            {
+              model: Message,
+              as: "message",
+              where: {
+                conversationId: conversation.id,
+                senderId: { [sequelize.Sequelize.Op.ne]: userId },
+              },
+            },
+          ],
+        });
+
+        const actualUnreadCount = unreadCount - readCount;
+
+        return {
+          id: conversation.id,
+          otherUser: {
+            id: otherUser?.id,
+            username: otherUser?.username,
+            isActive: otherUser?.isActive,
+          },
+          lastMessage: lastMessage
+            ? {
+                id: lastMessage.id,
+                content: lastMessage.content,
+                senderId: lastMessage.senderId,
+                senderName: lastMessage.sender.username,
+                createdAt: lastMessage.createdAt,
+              }
+            : null,
+          lastMessageAt: conversation.lastMessageAt,
+          unreadCount: Math.max(0, actualUnreadCount),
+        };
+      })
+    );
+
     res.json({
       success: true,
-      data: conversations,
+      data: transformedConversations,
     });
   } catch (error) {
+    console.error("Error fetching conversations:", error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Failed to fetch conversations",
     });
   }
 };
 
-export const getConversationMessages = async (req, res) => {
+const getConversationMessages = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const { userId } = req.user;
+    const { id: userId } = req.user;
 
     const isMember = await ConversationMember.findOne({
       where: { conversationId, userId },
@@ -100,20 +132,240 @@ export const getConversationMessages = async (req, res) => {
       include: [
         {
           model: User,
-          attributes: ["id", "name"],
+          as: "sender",
+          attributes: ["id", "username"],
         },
       ],
       order: [["createdAt", "ASC"]],
     });
 
+    // Get read receipts for all messages in this conversation
+    const readReceipts = await ReadReceipt.findAll({
+      where: {
+        messageId: messages.map((msg) => msg.id),
+      },
+      attributes: ["messageId", "userId", "readAt"],
+    });
+
+    // Create a map of messageId to read receipts
+    const readReceiptsMap = readReceipts.reduce((acc, receipt) => {
+      if (!acc[receipt.messageId]) {
+        acc[receipt.messageId] = [];
+      }
+      acc[receipt.messageId].push({
+        userId: receipt.userId,
+        readAt: receipt.readAt,
+      });
+      return acc;
+    }, {});
+
+    // Transform messages to include read receipt information
+    const transformedMessages = messages.map((message) => ({
+      id: message.id,
+      content: message.content,
+      conversationId: message.conversationId,
+      senderId: message.senderId,
+      sender: message.sender,
+      messageType: message.messageType,
+      createdAt: message.createdAt,
+      updatedAt: message.updatedAt,
+      readReceipts: readReceiptsMap[message.id] || [],
+      isRead: (readReceiptsMap[message.id] || []).length > 0,
+    }));
+
     res.json({
       success: true,
-      data: messages,
+      data: transformedMessages,
     });
   } catch (error) {
+    console.error("Error fetching messages:", error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Failed to fetch messages",
     });
   }
 };
+
+const createPrivateConversation = async (req, res) => {
+  try {
+    const { receiverId } = req.body;
+    const { id: userId } = req.user;
+
+    if (!receiverId) {
+      return res.status(400).json({
+        success: false,
+        message: "Receiver ID is required",
+      });
+    }
+
+    if (receiverId === userId) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot create conversation with yourself",
+      });
+    }
+
+    const existingConversation = await Conversation.findOne({
+      include: [
+        {
+          model: User,
+          as: "members",
+          through: { attributes: [] },
+          where: {
+            id: { [sequelize.Sequelize.Op.in]: [userId, receiverId] },
+          },
+        },
+      ],
+      where: { type: "private" },
+    });
+
+    const hasExactlyTwoMembers = existingConversation?.members?.length === 2;
+
+    if (existingConversation && hasExactlyTwoMembers) {
+      const otherUser = existingConversation.members.find(
+        (member) => member.id !== userId
+      );
+
+      const transformedConversation = {
+        id: existingConversation.id,
+        otherUser: {
+          id: otherUser.id,
+          username: otherUser.username,
+          isActive: otherUser.isActive,
+        },
+        lastMessage: null,
+        lastMessageAt: existingConversation.lastMessageAt,
+      };
+
+      return res.json({
+        success: true,
+        data: transformedConversation,
+        isNew: false,
+      });
+    }
+
+    const conversation = await Conversation.create({
+      type: "private",
+      lastMessageAt: new Date(),
+    });
+
+    const conversationMembers = [
+      { conversationId: conversation.id, userId },
+      { conversationId: conversation.id, userId: receiverId },
+    ];
+
+    await ConversationMember.bulkCreate(conversationMembers);
+
+    const newConversation = await Conversation.findByPk(conversation.id, {
+      include: [
+        {
+          model: User,
+          as: "members",
+          through: { attributes: [] },
+          attributes: ["id", "username", "isActive"],
+        },
+      ],
+    });
+
+    const otherUser = newConversation.members.find(
+      (member) => member.id !== userId
+    );
+
+    const transformedConversation = {
+      id: newConversation.id,
+      otherUser: {
+        id: otherUser.id,
+        username: otherUser.username,
+        isActive: otherUser.isActive,
+      },
+      lastMessage: null,
+      lastMessageAt: newConversation.lastMessageAt,
+    };
+
+    res.status(201).json({
+      success: true,
+      data: transformedConversation,
+      isNew: true,
+    });
+  } catch (error) {
+    console.error("Error creating conversation:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to create conversation",
+    });
+  }
+};
+
+const markConversationAsRead = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { id: userId } = req.user;
+
+    const isMember = await ConversationMember.findOne({
+      where: { conversationId, userId },
+    });
+
+    if (!isMember) {
+      return res.status(403).json({
+        success: false,
+        message: "Not a member of this conversation",
+      });
+    }
+
+    // Get all unread messages in the conversation for this user
+    const unreadMessages = await Message.findAll({
+      where: {
+        conversationId,
+        senderId: { [sequelize.Sequelize.Op.ne]: userId },
+      },
+    });
+
+    // Get message IDs that already have read receipts for this user
+    const existingReadReceipts = await ReadReceipt.findAll({
+      where: { userId },
+      attributes: ["messageId"],
+    });
+
+    const existingReadMessageIds = new Set(
+      existingReadReceipts.map((rr) => rr.messageId)
+    );
+
+    // Filter out messages that already have read receipts
+    const messagesToMark = unreadMessages.filter(
+      (msg) => !existingReadMessageIds.has(msg.id)
+    );
+
+    if (messagesToMark.length > 0) {
+      const readReceipts = messagesToMark.map((msg) => ({
+        messageId: msg.id,
+        userId,
+        readAt: new Date(),
+      }));
+
+      await ReadReceipt.bulkCreate(readReceipts, {
+        ignoreDuplicates: true,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Marked ${messagesToMark.length} messages as read`,
+      data: { markedCount: messagesToMark.length },
+    });
+  } catch (error) {
+    console.error("Error marking conversation as read:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to mark conversation as read",
+    });
+  }
+};
+
+const ConversationController = {
+  getUserConversations,
+  getConversationMessages,
+  createPrivateConversation,
+  markConversationAsRead,
+};
+
+export default ConversationController;

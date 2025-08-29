@@ -1,4 +1,5 @@
 import { User, sequelize } from "../schemas/index.js";
+import { Op } from "sequelize";
 import jwt from "jsonwebtoken";
 
 const generateToken = (userId) => {
@@ -11,74 +12,86 @@ const generateToken = (userId) => {
 const UserController = {
   async register(req, res) {
     try {
-      if (!req.body.name || !req.body.email || !req.body.password) {
-        return res.status(400).json({ message: "Missing required fields" });
+      if (!req.body.username || !req.body.password) {
+        return res.status(400).json({ message: "missing required fields" });
       }
 
-      const { name, email, password } = req.body;
-      const transaction = await sequelize.transaction();
+      let { username, password } = req.body;
+
+      const usernameRegex = /^[a-z0-9_]+$/;
+      if (!usernameRegex.test(username)) {
+        return res.status(400).json({
+          message:
+            "username can only contain lowercase letters, numbers 0-9, and underscores",
+        });
+      }
+
+      username = username.toLowerCase().trim().replace(/\s+/g, "");
 
       try {
         const existingUser = await User.findOne({
-          where: { email },
-          transaction,
+          where: { username },
         });
 
         if (existingUser) {
-          await transaction.rollback();
-          return res.status(400).json({ message: "Email already exists" });
+          return res.status(400).json({ message: "username already exists" });
         }
 
-        const user = await User.create(
-          {
-            name,
-            email: email.toLowerCase(),
-            password,
-          },
-          { transaction }
-        );
-
-        await transaction.commit();
+        const user = await User.create({
+          username,
+          password,
+        });
 
         const auth_token = generateToken(user.id);
         res.status(201).json({
-          message: "User created successfully",
+          message: "user created successfully",
           auth_token: auth_token,
         });
       } catch (error) {
-        await transaction.rollback();
-        res.status(500).json({ message: "Failed to create user" });
+        console.log(error);
+        res.status(500).json({ message: "failed to create user" });
       }
     } catch (error) {
-      res.status(500).json({ message: "Internal server error" });
+      console.log(error);           
+      res.status(500).json({ message: "internal server error" });
     }
   },
 
   async login(req, res) {
     try {
-      if (!req.body.email || !req.body.password) {
-        return res.status(400).json({ message: "Missing required fields" });
+      console.log(req.body);
+      if (!req.body.username || !req.body.password) {
+        return res.status(400).json({ message: "missing required fields" });
       }
 
-      const { email, password } = req.body;
+      let { username, password } = req.body;
+      console.log(username, password);
+
+      const usernameRegex = /^[a-z0-9_]+$/;
+      if (!usernameRegex.test(username)) {
+        return res.status(400).json({
+          message:
+            "username can only contain lowercase letters, numbers 0-9, and underscores",
+        });
+      }
 
       try {
         const user = await User.findOne({
           where: {
-            email: email.toLowerCase(),
+            username,
             isActive: true,
           },
-          attributes: ["id", "name", "email", "password"],
+          attributes: ["id", "username", "password"],
           raw: false,
         });
 
         if (!user) {
-          return res.status(401).json({ message: "Invalid email" });
+          return res.status(401).json({ message: "user not found" });
         }
 
         const isValidPassword = await user.validatePassword(password);
         if (!isValidPassword) {
-          return res.status(401).json({ message: "Invalid password" });
+          return res.status(401).json({ message: "invalid password" });
         }
 
         const auth_token = generateToken(user.id);
@@ -88,16 +101,18 @@ const UserController = {
         }
 
         res.json({
-          message: "Login successful",
+          message: "login successful",
           auth_token: auth_token,
         });
       } catch (error) {
+        console.log(error);
         res
           .status(500)
-          .json({ message: "An error occurred during authentication" });
+          .json({ message: "an error occurred during authentication" });
       }
     } catch (error) {
-      res.status(500).json({ message: "Internal server error" });
+      console.log(error);
+      res.status(500).json({ message: "internal server error" });
     }
   },
 
@@ -108,64 +123,73 @@ const UserController = {
       try {
         const user = await User.findOne({
           where: { id: userId },
-          attributes: [
-            "id",
-            "name",
-            "email",
-            "isActive",
-            "createdAt",
-            "updatedAt",
-          ],
+          attributes: ["id", "username", "isActive"],
         });
 
         if (!user) {
-          return res.status(404).json({ message: "User profile not found" });
+          return res.status(404).json({ message: "user profile not found" });
         }
 
         res.json({
-          message: "Profile retrieved successfully",
+          message: "profile retrieved successfully",
           data: {
             user: user,
           },
         });
       } catch (error) {
-        res.status(500).json({ message: "Failed to retrieve user profile" });
+        console.log(error);
+        res.status(500).json({ message: "failed to retrieve user profile" });
       }
     } catch (error) {
-      res.status(500).json({ message: "Internal server error" });
+      console.log(error);
+      res.status(500).json({ message: "internal server error" });
     }
   },
 
-  async getAllUsers(req, res) {
+  async searchUsers(req, res) {
     try {
+      const { username } = req.query;
       const currentUserId = req.user.id;
+
+      if (!username || username.trim().length === 0) {
+        return res.status(400).json({
+          message: "username parameter is required",
+        });
+      }
+
+      const usernameRegex = /^[a-z0-9_]+$/;
+      if (!usernameRegex.test(username)) {
+        return res.status(400).json({
+          message:
+            "username can only contain lowercase letters, numbers 0-9, and underscores",
+        });
+      }
 
       try {
         const users = await User.findAll({
           where: {
-            id: { [sequelize.Sequelize.Op.ne]: currentUserId },
+            id: { [Op.ne]: currentUserId },
             isActive: true,
+            username: {
+              [Op.iLike]: `%${username.trim()}%`,
+            },
           },
-          attributes: [
-            "id",
-            "name",
-            "email",
-            "isActive",
-            "createdAt",
-            "updatedAt",
-          ],
-          order: [["name", "ASC"]],
+          attributes: ["id", "username", "isActive", "createdAt", "updatedAt"],
+          order: [["username", "ASC"]],
+          limit: 10,
         });
 
         res.json({
-          message: "Users retrieved successfully",
+          message: "users found successfully",
           data: users,
         });
       } catch (error) {
-        res.status(500).json({ message: "Failed to retrieve users" });
+        console.log(error);
+        res.status(500).json({ message: "failed to search users" });
       }
     } catch (error) {
-      res.status(500).json({ message: "Internal server error" });
+      console.log(error);
+      res.status(500).json({ message: "internal server error" });
     }
   },
 };

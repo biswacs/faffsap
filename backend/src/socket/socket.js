@@ -1,127 +1,319 @@
-import { Server } from "socket.io";
 import {
   User,
   Conversation,
   Message,
   ConversationMember,
   ReadReceipt,
+  sequelize,
 } from "../schemas/index.js";
+import { authenticateSocket } from "../middleware/auth.middleware.js";
 
 const userSockets = new Map();
+const socketUsers = new Map();
 const onlineUsers = new Set();
 
 function socketConnection(io) {
+  io.use(authenticateSocket);
+
   io.on("connection", (socket) => {
-    socket.on("user_online", async (data) => {
-      const { userId } = data;
-      userSockets.set(userId, socket.id);
-      onlineUsers.add(userId);
-      
-      // Emit to all clients that this user is now online
-      io.emit("user_status_change", {
-        userId,
-        status: "online"
-      });
-    });
+    const { userId, username } = socket;
 
-    socket.on("join_conversation", async (data) => {
-      const { userId, conversationId } = data;
-      const conversation = await Conversation.findByPk(conversationId, {
-        include: [{ model: ConversationMember, include: [User] }],
-      });
+    console.log(`User ${username} (${userId}) connected`);
 
-      if (conversation) {
-        const isMember = conversation.ConversationMembers.some(
-          (member) => member.userId === userId
-        );
-        if (isMember) {
-          socket.join(conversationId);
-          userSockets.set(userId, socket.id);
-        }
-      }
+    userSockets.set(userId, socket.id);
+    socketUsers.set(socket.id, userId);
+    onlineUsers.add(userId);
+
+    socket.join(`user_${userId}`);
+
+    io.emit("user_status_change", {
+      userId,
+      username,
+      status: "online",
     });
 
     socket.on("send_message", async (data) => {
-      const { conversationId, senderId, content, messageType = "text" } = data;
+      try {
+        const { receiverId, content, messageType = "text" } = data;
 
-      const message = await Message.create({
-        conversationId,
-        senderId,
-        content,
-        messageType,
-      });
+        if (!receiverId || !content) {
+          socket.emit("error", { message: "Missing required fields" });
+          return;
+        }
 
-      await Conversation.update(
-        { lastMessageAt: new Date() },
-        { where: { id: conversationId } }
-      );
+        let conversation = await Conversation.findOne({
+          include: [
+            {
+              model: User,
+              as: "members",
+              through: { attributes: [] },
+              where: {
+                id: { [sequelize.Sequelize.Op.in]: [userId, receiverId] },
+              },
+            },
+          ],
+          where: { type: "private" },
+        });
 
-      const sender = await User.findByPk(senderId);
-      const messageData = {
-        id: message.id,
-        content: message.content,
-        senderId: message.senderId,
-        senderName: sender.name,
-        conversationId: message.conversationId,
-        messageType: message.messageType,
-        createdAt: message.createdAt,
-      };
+        if (!conversation || conversation.members.length !== 2) {
+          conversation = await Conversation.create({
+            type: "private",
+            lastMessageAt: new Date(),
+          });
 
-      io.to(conversationId).emit("receive_message", messageData);
-    });
+          await ConversationMember.bulkCreate([
+            { conversationId: conversation.id, userId },
+            { conversationId: conversation.id, userId: receiverId },
+          ]);
+        }
 
-    socket.on("mark_read", async (data) => {
-      const { messageId, userId } = data;
+        const message = await Message.create({
+          conversationId: conversation.id,
+          senderId: userId,
+          content,
+          messageType,
+        });
 
-      await ReadReceipt.findOrCreate({
-        where: { messageId, userId },
-        defaults: { readAt: new Date() },
-      });
+        await Conversation.update(
+          { lastMessageAt: new Date() },
+          { where: { id: conversation.id } }
+        );
 
-      socket.broadcast.to(data.conversationId).emit("message_read", {
-        messageId,
-        userId,
-        readAt: new Date(),
-      });
+        const messageData = {
+          id: message.id,
+          content: message.content,
+          senderId: message.senderId,
+          senderName: username,
+          conversationId: conversation.id,
+          messageType: message.messageType,
+          createdAt: message.createdAt,
+        };
+
+        socket.emit("message_sent", messageData);
+
+        io.to(`user_${userId}`).emit("receive_message", messageData);
+
+        const receiverSocketId = userSockets.get(receiverId);
+        if (receiverSocketId) {
+          io.to(receiverSocketId).emit("receive_message", messageData);
+        }
+
+        io.to(`user_${userId}`).emit("conversation_updated", {
+          conversationId: conversation.id,
+          lastMessage: messageData,
+        });
+
+        if (receiverSocketId) {
+          io.to(`user_${receiverId}`).emit("conversation_updated", {
+            conversationId: conversation.id,
+            lastMessage: messageData,
+          });
+        }
+      } catch (error) {
+        console.error("Error sending message:", error);
+        socket.emit("error", { message: "Failed to send message" });
+      }
     });
 
     socket.on("typing_start", (data) => {
-      socket.broadcast.to(data.conversationId).emit("user_typing", {
-        userId: data.userId,
-        userName: data.userName,
-      });
+      const { receiverId } = data;
+      const receiverSocketId = userSockets.get(receiverId);
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("user_typing", {
+          userId,
+          username,
+        });
+      }
     });
 
     socket.on("typing_stop", (data) => {
-      socket.broadcast.to(data.conversationId).emit("user_stop_typing", {
-        userId: data.userId,
-      });
+      const { receiverId } = data;
+      const receiverSocketId = userSockets.get(receiverId);
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("user_stop_typing", {
+          userId,
+        });
+      }
+    });
+
+    socket.on("mark_read", async (data) => {
+      try {
+        const { messageId, conversationId } = data;
+        console.log(
+          `Attempting to mark message ${messageId} as read by user ${userId} in conversation ${conversationId}`
+        );
+
+        // Validate input data
+        if (!messageId || !conversationId) {
+          console.error("Missing required data:", {
+            messageId,
+            conversationId,
+          });
+          socket.emit("error", {
+            message: "Missing messageId or conversationId",
+          });
+          return;
+        }
+
+        // Check if the message exists and get the sender
+        const message = await Message.findByPk(messageId);
+        if (!message) {
+          console.error(`Message ${messageId} not found`);
+          socket.emit("error", { message: "Message not found" });
+          return;
+        }
+
+        // Check if user is a member of the conversation
+        const isMember = await ConversationMember.findOne({
+          where: { conversationId, userId },
+        });
+        if (!isMember) {
+          console.error(
+            `User ${userId} is not a member of conversation ${conversationId}`
+          );
+          socket.emit("error", {
+            message: "Not a member of this conversation",
+          });
+          return;
+        }
+
+        console.log("Creating/updating read receipt...");
+
+        // Create or update read receipt
+        const [readReceipt, created] = await ReadReceipt.findOrCreate({
+          where: { messageId, userId },
+          defaults: { readAt: new Date() },
+        });
+
+        if (!created) {
+          console.log("Updating existing read receipt");
+          // Update existing read receipt
+          await readReceipt.update({ readAt: new Date() });
+        } else {
+          console.log("Created new read receipt");
+        }
+
+        console.log(
+          "Read receipt created/updated successfully:",
+          readReceipt.readAt
+        );
+
+        // Find the sender's socket and emit message_read directly to them
+        const senderSocketId = userSockets.get(message.senderId);
+        if (senderSocketId) {
+          console.log(
+            `Emitting message_read to sender ${message.senderId} at socket ${senderSocketId}`
+          );
+          io.to(senderSocketId).emit("message_read", {
+            messageId,
+            userId,
+            readAt: readReceipt.readAt,
+            conversationId,
+          });
+        } else {
+          console.log(
+            `Sender ${message.senderId} is not online, cannot emit message_read`
+          );
+        }
+
+        console.log(
+          `Message ${messageId} marked as read by user ${userId}, event sent to sender ${message.senderId}`
+        );
+      } catch (error) {
+        console.error("Error marking message as read:", error);
+        console.error("Error stack:", error.stack);
+        socket.emit("error", { message: "Failed to mark message as read" });
+      }
+    });
+
+    socket.on("mark_conversation_read", async (data) => {
+      try {
+        const { conversationId } = data;
+        console.log(
+          `Marking all messages in conversation ${conversationId} as read by user ${userId}`
+        );
+
+        // Get all unread messages in the conversation for this user
+        const unreadMessages = await Message.findAll({
+          where: {
+            conversationId,
+            senderId: { [sequelize.Sequelize.Op.ne]: userId },
+          },
+          include: [
+            {
+              model: ReadReceipt,
+              where: { userId },
+              required: false,
+            },
+          ],
+        });
+
+        // Mark all unread messages as read
+        const messagesToMark = unreadMessages.filter(
+          (msg) => !msg.ReadReceipts || msg.ReadReceipts.length === 0
+        );
+
+        if (messagesToMark.length > 0) {
+          const readReceipts = messagesToMark.map((msg) => ({
+            messageId: msg.id,
+            userId,
+            readAt: new Date(),
+          }));
+
+          await ReadReceipt.bulkCreate(readReceipts, {
+            ignoreDuplicates: true,
+          });
+
+          // Emit read receipts directly to each sender
+          messagesToMark.forEach((msg) => {
+            const senderSocketId = userSockets.get(msg.senderId);
+            if (senderSocketId) {
+              console.log(
+                `Emitting message_read to sender ${msg.senderId} for message ${msg.id}`
+              );
+              io.to(senderSocketId).emit("message_read", {
+                messageId: msg.id,
+                userId,
+                readAt: new Date(),
+                conversationId,
+              });
+            } else {
+              console.log(
+                `Sender ${msg.senderId} is not online, cannot emit message_read for message ${msg.id}`
+              );
+            }
+          });
+
+          console.log(
+            `Marked ${messagesToMark.length} messages as read in conversation ${conversationId}`
+          );
+        }
+      } catch (error) {
+        console.error("Error marking conversation as read:", error);
+        socket.emit("error", {
+          message: "Failed to mark conversation as read",
+        });
+      }
     });
 
     socket.on("disconnect", () => {
-      let disconnectedUserId = null;
-      
-      for (const [userId, socketId] of userSockets.entries()) {
-        if (socketId === socket.id) {
-          disconnectedUserId = userId;
-          userSockets.delete(userId);
-          onlineUsers.delete(userId);
-          break;
-        }
-      }
+      console.log(`User ${username} (${userId}) disconnected`);
 
-      if (disconnectedUserId) {
-        // Emit to all clients that this user is now offline
-        io.emit("user_status_change", {
-          userId: disconnectedUserId,
-          status: "offline"
-        });
-      }
+      userSockets.delete(userId);
+      socketUsers.delete(socket.id);
+      onlineUsers.delete(userId);
+
+      io.emit("user_status_change", {
+        userId,
+        username,
+        status: "offline",
+      });
     });
   });
 }
 
-// Function to get online users (can be used by other parts of the app)
 export const getOnlineUsers = () => Array.from(onlineUsers);
+export const isUserOnline = (userId) => onlineUsers.has(userId);
+export const getUserSocketId = (userId) => userSockets.get(userId);
 
 export default socketConnection;

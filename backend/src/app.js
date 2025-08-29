@@ -33,7 +33,7 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log("DB connected.");
 
-    await sequelize.sync({ alter: false });
+    await sequelize.sync({ alter: true });
     console.log("DB synced.");
 
     const PORT = process.env.PORT || 8080;
