@@ -1,6 +1,5 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { AuthProvider } from "./contexts/AuthContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,8 +12,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "FaffSap - Modern Platform",
-  description: "A secure and modern platform with authentication",
+  title: "fafsap",
 };
 
 export default function RootLayout({ children }) {
@@ -23,7 +21,7 @@ export default function RootLayout({ children }) {
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AuthProvider>{children}</AuthProvider>
+        {children}
       </body>
     </html>
   );
