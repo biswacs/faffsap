@@ -4,6 +4,7 @@ import Conversation from "./conversation.schema.js";
 import Message from "./message.schema.js";
 import ConversationMember from "./conversationMember.schema.js";
 import ReadReceipt from "./readReceipt.schema.js";
+import MessageEmbedding from "./messageEmbedding.schema.js";
 
 User.hasMany(Message, { foreignKey: "senderId", as: "messages" });
 Message.belongsTo(User, { foreignKey: "senderId", as: "sender" });
@@ -33,6 +34,10 @@ ReadReceipt.belongsTo(Message, { foreignKey: "messageId", as: "message" });
 User.hasMany(ReadReceipt, { foreignKey: "userId", as: "readReceipts" });
 ReadReceipt.belongsTo(User, { foreignKey: "userId", as: "user" });
 
+// Message embedding associations
+Message.hasOne(MessageEmbedding, { foreignKey: "messageId", as: "embedding" });
+MessageEmbedding.belongsTo(Message, { foreignKey: "messageId", as: "message" });
+
 export {
   sequelize,
   User,
@@ -40,4 +45,5 @@ export {
   Message,
   ConversationMember,
   ReadReceipt,
+  MessageEmbedding,
 };

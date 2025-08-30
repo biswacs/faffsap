@@ -1,6 +1,6 @@
-import { LogOut, User } from "lucide-react";
+import { LogOut, User, Search } from "lucide-react";
 
-export default function Header({ user, onLogout }) {
+export default function Header({ user, onLogout, onGlobalSearch }) {
   return (
     <div className="bg-white border-b border-gray-200 p-4">
       <div className="flex items-center justify-between max-w-4xl mx-auto">
@@ -13,9 +13,21 @@ export default function Header({ user, onLogout }) {
             <p className="text-sm text-gray-500">Online</p>
           </div>
         </div>
-        <button onClick={onLogout} className="p-2 hover:bg-gray-100 rounded-lg">
-          <LogOut className="w-5 h-5 text-gray-600" />
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={onGlobalSearch}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Search all messages"
+          >
+            <Search className="w-5 h-5 text-gray-600" />
+          </button>
+          <button
+            onClick={onLogout}
+            className="p-2 hover:bg-gray-100 rounded-lg"
+          >
+            <LogOut className="w-5 h-5 text-gray-600" />
+          </button>
+        </div>
       </div>
     </div>
   );

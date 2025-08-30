@@ -7,6 +7,7 @@ import {
   sequelize,
 } from "../schemas/index.js";
 import { authenticateSocket } from "../middleware/auth.middleware.js";
+import { messageEmbeddingQueue } from "../config/queue.js";
 
 const userSockets = new Map();
 const socketUsers = new Map();
@@ -73,6 +74,15 @@ function socketConnection(io) {
           content,
           messageType,
         });
+
+        // Add message to embedding queue for semantic search
+        if (messageType === "text") {
+          await messageEmbeddingQueue.add({
+            messageId: message.id,
+            content,
+            messageType,
+          });
+        }
 
         await Conversation.update(
           { lastMessageAt: new Date() },

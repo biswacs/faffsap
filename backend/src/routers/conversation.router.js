@@ -21,4 +21,11 @@ router.post(
   ConversationController.markConversationAsRead
 );
 
+router.get("/search", authMiddleware, ConversationController.searchAllMessages);
+router.get(
+  "/:conversationId/search",
+  authMiddleware,
+  ConversationController.searchMessagesInConversation
+);
+
 export default router;

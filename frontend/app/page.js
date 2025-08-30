@@ -6,6 +6,7 @@ import Header from "./components/Header";
 import UserSearch from "./components/UserSearch";
 import ConversationList from "./components/ConversationList";
 import ChatInterface from "./components/ChatInterface";
+import SearchInterface from "./components/SearchInterface";
 import { useSocket } from "./hooks/useSocket";
 import { useTyping } from "./hooks/useTyping";
 
@@ -19,6 +20,7 @@ export default function RootPage() {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const messagesEndRef = useRef(null);
 
   // Use custom hooks
@@ -252,6 +254,14 @@ export default function RootPage() {
     window.location.href = "/auth";
   };
 
+  const handleGlobalSearch = () => {
+    setIsGlobalSearchOpen(true);
+  };
+
+  const handleCloseGlobalSearch = () => {
+    setIsGlobalSearchOpen(false);
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -265,7 +275,11 @@ export default function RootPage() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <Header user={user} onLogout={handleLogout} />
+      <Header
+        user={user}
+        onLogout={handleLogout}
+        onGlobalSearch={handleGlobalSearch}
+      />
 
       {!selectedConversation ? (
         <div className="max-w-4xl mx-auto p-6">
@@ -297,6 +311,13 @@ export default function RootPage() {
           onSendMessage={sendMessage}
         />
       )}
+
+      <SearchInterface
+        isOpen={isGlobalSearchOpen}
+        onClose={handleCloseGlobalSearch}
+        conversationId={null}
+        currentUserId={user?.id}
+      />
     </div>
   );
 }
