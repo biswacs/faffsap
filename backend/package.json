@@ -7,7 +7,10 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon src/app.js",
-    "worker": "node start-worker.js"
+    "worker": "node start-worker.js",
+    "load-test": "node load-test.js",
+    "monitor": "node monitor-dashboard.js",
+    "test-socket": "node test-socket.js"
   },
   "keywords": [],
   "author": "",
@@ -40,6 +43,7 @@
     "@types/pg": "^8.11.0",
     "@types/uuid": "^10.0.0",
     "nodemon": "^3.0.3",
+    "socket.io-client": "^4.8.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   }

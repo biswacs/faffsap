@@ -8,6 +8,12 @@ import { setupTypesense } from "./config/setupTypesense.js";
 import userRoutes from "./routers/user.router.js";
 import conversationRoutes from "./routers/conversation.router.js";
 import socketConnection from "./socket/socket.js";
+import {
+  memoryMonitor,
+  performanceMonitor,
+  socketMonitor,
+  dbMonitor,
+} from "./middleware/monitoring.middleware.js";
 
 const app = express();
 const server = createServer(app);
@@ -17,7 +23,6 @@ const io = new Server(server, {
   },
 });
 
-// Configure CORS properly for frontend requests
 app.use(
   cors({
     origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -30,7 +35,9 @@ app.use(
 );
 app.use(express.json());
 
-// Handle preflight requests for search endpoints
+app.use(memoryMonitor);
+app.use(performanceMonitor);
+
 app.options("/api/v1/conversation/search", (req, res) => {
   res.header("Access-Control-Allow-Origin", "http://localhost:3000");
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -54,7 +61,6 @@ app.get("/api/v1/faff", (req, res) => {
   res.json({ message: "faff" });
 });
 
-// Test CORS endpoint
 app.get("/api/v1/test-cors", (req, res) => {
   res.json({
     message: "CORS test successful",
@@ -65,6 +71,9 @@ app.get("/api/v1/test-cors", (req, res) => {
 
 socketConnection(io);
 
+const socketMonitorInterval = socketMonitor(io);
+const dbMonitorInterval = dbMonitor(sequelize);
+
 const startServer = async () => {
   try {
     await sequelize.authenticate();
@@ -73,13 +82,15 @@ const startServer = async () => {
     await sequelize.sync({ force: false });
     console.log("DB synced.");
 
-    // Setup Typesense collection
     await setupTypesense();
     console.log("Typesense collection ready.");
 
-    const PORT = process.env.PORT || 8080;
+    const PORT = process.env.PORT || 8000;
     server.listen(PORT, () => {
       console.log(`http://localhost:${PORT}`);
+      console.log(
+        `[MONITORING] Memory, performance, socket, and database monitoring enabled`
+      );
     });
   } catch (error) {
     console.error("Failed to start server:", error.message);
