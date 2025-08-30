@@ -23,16 +23,6 @@ const io = new Server(server, {
   },
 });
 
-app.use(
-  cors({
-    origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
-  })
-);
 app.use(express.json());
 
 app.use(memoryMonitor);
@@ -70,9 +60,6 @@ app.get("/api/v1/test-cors", (req, res) => {
 });
 
 socketConnection(io);
-
-const socketMonitorInterval = socketMonitor(io);
-const dbMonitorInterval = dbMonitor(sequelize);
 
 const startServer = async () => {
   try {
