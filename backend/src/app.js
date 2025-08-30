@@ -35,8 +35,8 @@ app.use(
 );
 app.use(express.json());
 
-app.use(memoryMonitor);
-app.use(performanceMonitor);
+// app.use(memoryMonitor);
+// app.use(performanceMonitor);
 
 app.options("/api/v1/conversation/search", (req, res) => {
   res.header("Access-Control-Allow-Origin", "http://localhost:3000");
@@ -71,9 +71,6 @@ app.get("/api/v1/test-cors", (req, res) => {
 
 socketConnection(io);
 
-const socketMonitorInterval = socketMonitor(io);
-const dbMonitorInterval = dbMonitor(sequelize);
-
 const startServer = async () => {
   try {
     await sequelize.authenticate();
@@ -88,9 +85,6 @@ const startServer = async () => {
     const PORT = process.env.PORT || 8000;
     server.listen(PORT, () => {
       console.log(`http://localhost:${PORT}`);
-      console.log(
-        `[MONITORING] Memory, performance, socket, and database monitoring enabled`
-      );
     });
   } catch (error) {
     console.error("Failed to start server:", error.message);
