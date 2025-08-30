@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Search, X, MessageSquare, User } from "lucide-react";
 
 export default function SearchInterface({
@@ -11,7 +11,7 @@ export default function SearchInterface({
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const performSearch = async () => {
+  const performSearch = useCallback(async () => {
     if (!query.trim() || query.trim().length < 2) return;
 
     setLoading(true);
@@ -55,7 +55,7 @@ export default function SearchInterface({
     } finally {
       setLoading(false);
     }
-  };
+  }, [query, conversationId]);
 
   useEffect(() => {
     if (query.trim().length >= 2) {
@@ -64,7 +64,7 @@ export default function SearchInterface({
     } else {
       setResults([]);
     }
-  }, [query, conversationId]);
+  }, [query, conversationId, performSearch]);
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString("en-US", {
@@ -87,7 +87,7 @@ export default function SearchInterface({
     if (results.length === 0 && query.trim().length >= 2) {
       return (
         <div className="text-center py-8 text-gray-500">
-          No messages found matching "{query}"
+          No messages found matching &quot;{query}&quot;
         </div>
       );
     }

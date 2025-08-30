@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { Check, CheckCheck } from "lucide-react";
 
 export default function MessageList({
@@ -6,13 +6,13 @@ export default function MessageList({
   currentUserId,
   messagesEndRef,
 }) {
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, [messagesEndRef]);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
   const getReadReceiptIcon = (message) => {
     if (message.senderId !== currentUserId) return null;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { io } from "socket.io-client";
 
 export function useSocket(
@@ -8,6 +8,36 @@ export function useSocket(
   setConversations
 ) {
   const [socket, setSocket] = useState(null);
+
+  const updateConversationLastMessage = useCallback(
+    (messageData) => {
+      setConversations((prev) =>
+        prev.map((conv) => {
+          if (conv.id === messageData.conversationId) {
+            return { ...conv, lastMessage: messageData };
+          }
+          return conv;
+        })
+      );
+    },
+    [setConversations]
+  );
+
+  const updateConversationUnreadCount = useCallback(
+    (conversationId, increment) => {
+      setConversations((prev) =>
+        prev.map((conv) => {
+          if (conv.id === conversationId) {
+            const currentCount = conv.unreadCount || 0;
+            const newCount = Math.max(0, currentCount + increment);
+            return { ...conv, unreadCount: newCount };
+          }
+          return conv;
+        })
+      );
+    },
+    [setConversations]
+  );
 
   useEffect(() => {
     const token = localStorage.getItem("auth_token");
@@ -230,31 +260,14 @@ export function useSocket(
     return () => {
       newSocket.close();
     };
-  }, [user, selectedConversation]);
-
-  const updateConversationLastMessage = (messageData) => {
-    setConversations((prev) =>
-      prev.map((conv) => {
-        if (conv.id === messageData.conversationId) {
-          return { ...conv, lastMessage: messageData };
-        }
-        return conv;
-      })
-    );
-  };
-
-  const updateConversationUnreadCount = (conversationId, increment) => {
-    setConversations((prev) =>
-      prev.map((conv) => {
-        if (conv.id === conversationId) {
-          const currentCount = conv.unreadCount || 0;
-          const newCount = Math.max(0, currentCount + increment);
-          return { ...conv, unreadCount: newCount };
-        }
-        return conv;
-      })
-    );
-  };
+  }, [
+    user,
+    selectedConversation,
+    setMessages,
+    setConversations,
+    updateConversationLastMessage,
+    updateConversationUnreadCount,
+  ]);
 
   return { socket };
 }
