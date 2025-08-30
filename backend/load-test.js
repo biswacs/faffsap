@@ -4,11 +4,11 @@ import axios from "axios";
 
 const CONFIG = {
   baseUrl: "http://localhost:8000",
-  maxConcurrentUsers: 40,
-  messagesPerUser: 10,
-  messageInterval: 1000,
-  testDuration: 60000,
-  rampUpTime: 10000,
+  maxConcurrentUsers: Infinity,
+  messagesPerUser: Infinity,
+  failureThreshold: 100,
+  testDuration: Infinity,
+  rampUpTime: 5000,
 };
 
 const results = {
@@ -31,50 +31,48 @@ class TestUserManager {
   }
 
   async createTestUsers(count) {
-    console.log(`🔧 Creating ${count} test users...`);
+    console.log(`🔧 Creating ${count} test users CONCURRENTLY...`);
 
+    const userPromises = [];
     for (let i = 0; i < count; i++) {
       const username = `loadtestuser${i + 1}_${Date.now()}`;
       const password = `testpass${i + 1}`;
 
-      try {
-        const response = await axios.post(
-          `${this.baseUrl}/api/v1/user/register`,
-          {
-            username,
-            password,
+      const userPromise = axios
+        .post(`${this.baseUrl}/api/v1/user/register`, {
+          username,
+          password,
+        })
+        .then((response) => {
+          if (response.data.auth_token) {
+            const tokenParts = response.data.auth_token.split(".");
+            const payload = JSON.parse(
+              Buffer.from(tokenParts[1], "base64").toString()
+            );
+
+            return {
+              id: payload.id,
+              username,
+              password,
+              authToken: response.data.auth_token,
+            };
           }
-        );
-
-        if (response.data.auth_token) {
-          const tokenParts = response.data.auth_token.split(".");
-          const payload = JSON.parse(
-            Buffer.from(tokenParts[1], "base64").toString()
+        })
+        .catch((error) => {
+          console.error(
+            `❌ Failed to create user ${username}:`,
+            error.response?.data?.message || error.message
           );
+          return null;
+        });
 
-          const user = {
-            id: payload.id,
-            username,
-            password,
-            authToken: response.data.auth_token,
-          };
-
-          this.users.push(user);
-          console.log(
-            `✅ Created test user: ${username} (DB ID: ${payload.id})`
-          );
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      } catch (error) {
-        console.error(
-          `❌ Failed to create user ${username}:`,
-          error.response?.data?.message || error.message
-        );
-      }
+      userPromises.push(userPromise);
     }
 
-    console.log(`✅ Created ${this.users.length} test users successfully`);
+    const results = await Promise.all(userPromises);
+    this.users = results.filter((user) => user !== null);
+
+    console.log(`✅ Created ${this.users.length} test users concurrently`);
     return this.users;
   }
 
@@ -148,16 +146,6 @@ class SimulatedUser {
         });
 
         this.socket.on("error", (error) => {
-          console.error(`User ${this.username} error:`, error);
-          results.errors.push({
-            userId: this.userId,
-            username: this.username,
-            error: error.message,
-            timestamp: new Date().toISOString(),
-          });
-        });
-
-        this.socket.on("error", (error) => {
           console.error(`User ${this.username} socket error:`, error);
           if (
             error.message &&
@@ -179,20 +167,29 @@ class SimulatedUser {
   }
 
   async sendMessage(receiverId) {
-    if (!this.connected) return;
+    if (!this.connected) {
+      throw new Error("User not connected");
+    }
 
     this.lastMessageTime = performance.now();
 
-    try {
-      this.socket.emit("send_message", {
-        receiverId: receiverId,
-        content: `Test message ${this.messageCount + 1} from ${this.username}`,
-        messageType: "text",
-      });
-    } catch (error) {
-      console.error(`Error sending message from ${this.username}:`, error);
-      results.failedMessages++;
-    }
+    return new Promise((resolve, reject) => {
+      try {
+        this.socket.emit("send_message", {
+          receiverId: receiverId,
+          content: `Test message ${this.messageCount + 1} from ${
+            this.username
+          }`,
+          messageType: "text",
+        });
+
+        setTimeout(() => resolve(), 100);
+      } catch (error) {
+        console.error(`Error sending message from ${this.username}:`, error);
+        results.failedMessages++;
+        reject(error);
+      }
+    });
   }
 
   disconnect() {
@@ -215,136 +212,175 @@ class LoadTest {
     this.users = [];
     this.testRunning = false;
     this.userManager = new TestUserManager();
+    this.failureCount = 0;
+    this.maxFailures = 100;
+    this.startTime = Date.now();
   }
 
   async start() {
-    console.log("🚀 Starting Load Test...");
-    console.log(`📊 Target: ${CONFIG.maxConcurrentUsers} concurrent users`);
-    console.log(`⏱️  Duration: ${CONFIG.testDuration / 1000} seconds`);
-    console.log(`📝 Messages per user: ${CONFIG.messagesPerUser}`);
+    console.log("🚀 Starting UNLIMITED Load Test...");
+    console.log("🎯 Goal: Find the REAL breaking point");
+    console.log("⏹️  Stop Condition: 100 API failures");
     console.log("=" * 50);
 
-    await this.userManager.createTestUsers(CONFIG.maxConcurrentUsers);
+    this.testRunning = true;
 
-    if (this.userManager.users.length === 0) {
-      console.error("❌ No test users created. Cannot proceed with load test.");
+    try {
+      while (this.testRunning && this.failureCount < this.maxFailures) {
+        console.log(
+          `\n🔄 Test round - Users: ${this.users.length}, Failures: ${this.failureCount}/${this.maxFailures}`
+        );
+
+        await this.createAndConnectUsers(5);
+        await this.sendMessagesUntilFailure();
+
+        if (this.failureCount >= this.maxFailures) {
+          console.log(
+            `🚨 Hit failure threshold: ${this.failureCount} failures`
+          );
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    } catch (error) {
+      console.error("❌ Test error:", error);
+    } finally {
+      this.testRunning = false;
+      this.generateReport();
+    }
+  }
+
+  async createAndConnectUsers(batchSize) {
+    console.log(`🔧 Creating batch of ${batchSize} users...`);
+
+    try {
+      const newUsers = await this.userManager.createTestUsers(batchSize);
+
+      if (!newUsers || newUsers.length === 0) {
+        console.log("⚠️  No new users created, skipping connection");
+        return;
+      }
+
+      const connectionPromises = newUsers.map((userData) => {
+        const user = new SimulatedUser(
+          userData.id,
+          userData.username,
+          userData.authToken
+        );
+        return user
+          .connect()
+          .then(() => {
+            this.users.push(user);
+            results.totalUsers++;
+            console.log(
+              `✅ User ${userData.username} connected (Total: ${this.users.length})`
+            );
+            return user;
+          })
+          .catch((error) => {
+            this.failureCount++;
+            console.error(
+              `❌ Connection failed: ${error.message} (Failures: ${this.failureCount}/${this.maxFailures})`
+            );
+            return null;
+          });
+      });
+
+      const connectedUsers = await Promise.all(connectionPromises);
+      const successfulConnections = connectedUsers.filter((u) => u !== null);
+
+      console.log(
+        `✅ Batch complete: ${successfulConnections.length}/${batchSize} users connected`
+      );
+      console.log(
+        `📊 Total users: ${this.users.length}, Failures: ${this.failureCount}`
+      );
+    } catch (error) {
+      this.failureCount++;
+      console.error(
+        `❌ Batch creation failed: ${error.message} (Failures: ${this.failureCount}/${this.maxFailures})`
+      );
+    }
+  }
+
+  async sendMessagesUntilFailure() {
+    if (this.users.length === 0) {
+      console.log("⚠️  No users connected, skipping message test");
       return;
     }
 
-    results.startTime = new Date();
-    this.testRunning = true;
+    console.log("📝 Sending messages until failure...");
 
-    await this.rampUpUsers();
+    let messageCount = 0;
+    const maxMessagesPerRound = 50;
 
-    await this.runTest();
-
-    await this.cleanup();
-    this.generateReport();
-
-    await this.userManager.cleanupTestUsers();
-  }
-
-  async rampUpUsers() {
-    console.log("📈 Ramping up users...");
-
-    const usersPerBatch = Math.ceil(
-      CONFIG.maxConcurrentUsers / (CONFIG.rampUpTime / 1000)
-    );
-
-    for (
-      let i = 0;
-      i < Math.min(CONFIG.maxConcurrentUsers, this.userManager.users.length);
-      i++
+    while (
+      this.failureCount < this.maxFailures &&
+      messageCount < maxMessagesPerRound
     ) {
-      const testUser = this.userManager.getUserByIndex(i);
-      if (!testUser) continue;
+      const messagePromises = [];
 
-      const user = new SimulatedUser(
-        testUser.id,
-        testUser.username,
-        testUser.authToken
-      );
-
-      try {
-        await user.connect();
-        this.users.push(user);
-        results.totalUsers++;
-
-        if (i % 5 === 0) {
-          console.log(
-            `✅ Connected ${i + 1}/${Math.min(
-              CONFIG.maxConcurrentUsers,
-              this.userManager.users.length
-            )} users`
-          );
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      } catch (error) {
-        console.error(`❌ Failed to connect user ${i + 1}:`, error.message);
-        results.errors.push({
-          userId: i + 1,
-          username: testUser.username,
-          error: error.message,
-          timestamp: new Date().toISOString(),
-        });
-      }
-    }
-
-    console.log(`✅ All ${this.users.length} users connected`);
-  }
-
-  async runTest() {
-    console.log("🔄 Running main test...");
-
-    const testStart = Date.now();
-
-    while (Date.now() - testStart < CONFIG.testDuration && this.testRunning) {
       for (const user of this.users) {
-        if (user.messageCount < CONFIG.messagesPerUser) {
-          const otherUsers = this.users.filter((u) => u.userId !== user.userId);
+        if (user.connected) {
+          const otherUsers = this.users.filter(
+            (u) => u.userId !== user.userId && u.connected
+          );
           if (otherUsers.length > 0) {
             const randomReceiver =
               otherUsers[Math.floor(Math.random() * otherUsers.length)];
 
-            await user.sendMessage(randomReceiver.userId);
-            results.totalMessages++;
+            const messagePromise = user
+              .sendMessage(randomReceiver.userId)
+              .then(() => {
+                results.successfulMessages++;
+                messageCount++;
+              })
+              .catch((error) => {
+                this.failureCount++;
+                console.error(
+                  `❌ Message failed: ${error.message} (Failures: ${this.failureCount}/${this.maxFailures})`
+                );
+              });
 
-            await new Promise((resolve) => setTimeout(resolve, 100));
+            messagePromises.push(messagePromise);
           }
         }
       }
 
-      const allMessagesSent = this.users.every(
-        (user) => user.messageCount >= CONFIG.messagesPerUser
-      );
-      if (allMessagesSent) {
-        console.log("✅ All messages sent, ending test early");
-        break;
+      if (messagePromises.length > 0) {
+        await Promise.all(messagePromises);
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (this.failureCount >= this.maxFailures) {
+        console.log(`🚨 Hit failure threshold: ${this.failureCount} failures`);
+        break;
+      }
     }
   }
 
   async cleanup() {
-    console.log("🧹 Cleaning up...");
+    console.log("🧹 Cleaning up connections...");
 
     for (const user of this.users) {
-      user.disconnect();
+      if (user.disconnect) {
+        user.disconnect();
+      }
     }
 
-    results.endTime = new Date();
+    this.users = [];
     this.testRunning = false;
   }
 
   generateReport() {
+    const duration = (Date.now() - this.startTime) / 1000;
+
     console.log("\n" + "=" * 60);
     console.log("📊 LOAD TEST RESULTS");
     console.log("=" * 60);
 
-    const duration = (results.endTime - results.startTime) / 1000;
-    const messagesPerSecond = results.totalMessages / duration;
+    const messagesPerSecond =
+      results.totalMessages > 0 ? results.totalMessages / duration : 0;
     const successRate =
       results.totalMessages > 0
         ? (results.successfulMessages / results.totalMessages) * 100
@@ -365,6 +401,7 @@ class LoadTest {
     console.log(`🚀 Messages/Second: ${messagesPerSecond.toFixed(2)}`);
     console.log(`⚡ Average Response Time: ${avgResponseTime.toFixed(2)}ms`);
     console.log(`🔴 Errors: ${results.errors.length}`);
+    console.log(`🚨 Total Failures: ${this.failureCount}`);
 
     if (results.errors.length > 0) {
       console.log("\n❌ Error Summary:");
@@ -377,23 +414,34 @@ class LoadTest {
     }
 
     console.log("\n📈 PERFORMANCE ANALYSIS:");
-    if (results.totalUsers >= 25) {
+    if (this.failureCount >= this.maxFailures) {
       console.log(
-        "⚠️  System approaching estimated breaking point (25-35 users)"
+        `🚨 System reached breaking point at ${results.totalUsers} users`
       );
+      console.log(`💡 Breaking Point: ${results.totalUsers} concurrent users`);
+      console.log(
+        `💡 Production Limit: ${Math.floor(
+          results.totalUsers * 0.8
+        )} users (80% of breaking point)`
+      );
+    } else {
+      console.log("✅ Test completed without reaching failure threshold");
     }
+
     if (avgResponseTime > 1000) {
       console.log("⚠️  High response times detected (>1s)");
     }
-    if (successRate < 95) {
+    if (successRate < 95 && results.totalMessages > 0) {
       console.log("⚠️  Low success rate detected (<95%)");
     }
 
     console.log("\n💡 RECOMMENDATIONS:");
-    if (results.totalUsers >= 30) {
-      console.log("  - Consider upgrading server resources");
-      console.log("  - Implement connection pooling");
-      console.log("  - Add rate limiting");
+    if (this.failureCount >= this.maxFailures) {
+      console.log("  - System capacity reached, consider upgrading resources");
+      console.log("  - Implement connection pooling and rate limiting");
+    } else if (results.totalUsers >= 20) {
+      console.log("  - System approaching estimated breaking point");
+      console.log("  - Monitor closely, prepare for scaling");
     }
 
     console.log("=" * 60);
