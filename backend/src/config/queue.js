@@ -5,10 +5,8 @@ dotenv.config();
 
 // Create a queue for processing message embeddings
 export const messageEmbeddingQueue = new Queue("message-embedding", {
-  redis: {
-    host: "localhost",
-    port: 6379,
-  },
+  redis:
+    "redis://default:y0p8eGV0Sj55PGvNvs8rHFzXih5aedOm@redis-17822.c241.us-east-1-4.ec2.redns.redis-cloud.com:17822",
   defaultJobOptions: {
     attempts: 3,
     backoff: {
