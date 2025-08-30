@@ -24,10 +24,10 @@ export default function SearchInterface({
       }
 
       const endpoint = conversationId
-        ? `http://localhost:8080/api/v1/conversation/${conversationId}/search?query=${encodeURIComponent(
+        ? `https://termi.favrapp.in/api/v1/conversation/${conversationId}/search?query=${encodeURIComponent(
             query
           )}`
-        : `http://localhost:8080/api/v1/conversation/search?query=${encodeURIComponent(
+        : `https://termi.favrapp.in/api/v1/conversation/search?query=${encodeURIComponent(
             query
           )}`;
 

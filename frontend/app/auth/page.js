@@ -28,8 +28,8 @@ export default function AuthPage() {
 
     try {
       const endpoint = isLogin
-        ? "http://localhost:8080/api/v1/user/login"
-        : "http://localhost:8080/api/v1/user/register";
+        ? "https://termi.favrapp.in/api/v1/user/login"
+        : "https://termi.favrapp.in/api/v1/user/register";
 
       const response = await fetch(endpoint, {
         method: "POST",

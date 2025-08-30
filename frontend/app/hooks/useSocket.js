@@ -16,7 +16,7 @@ export function useSocket(
       return;
     }
 
-    const newSocket = io("http://localhost:8080", {
+    const newSocket = io("https://termi.favrapp.in", {
       auth: { token },
     });
 

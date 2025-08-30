@@ -47,7 +47,7 @@ export default function RootPage() {
     try {
       const token = localStorage.getItem("auth_token");
       const response = await fetch(
-        "http://localhost:8080/api/v1/user/profile",
+        "https://termi.favrapp.in/api/v1/user/profile",
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -66,7 +66,7 @@ export default function RootPage() {
     try {
       const token = localStorage.getItem("auth_token");
       const response = await fetch(
-        "http://localhost:8080/api/v1/conversation",
+        "https://termi.favrapp.in/api/v1/conversation",
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -86,7 +86,7 @@ export default function RootPage() {
       console.log("Fetching messages for conversation:", conversationId);
       const token = localStorage.getItem("auth_token");
       const response = await fetch(
-        `http://localhost:8080/api/v1/conversation/${conversationId}/messages`,
+        `https://termi.favrapp.in/api/v1/conversation/${conversationId}/messages`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -112,7 +112,7 @@ export default function RootPage() {
     try {
       const token = localStorage.getItem("auth_token");
       const response = await fetch(
-        `http://localhost:8080/api/v1/user/search?username=${searchQuery}`,
+        `https://termi.favrapp.in/api/v1/user/search?username=${searchQuery}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -135,7 +135,7 @@ export default function RootPage() {
       console.log("Starting conversation with user:", receiverId);
       const token = localStorage.getItem("auth_token");
       const response = await fetch(
-        "http://localhost:8080/api/v1/conversation/create",
+        "https://termi.favrapp.in/api/v1/conversation/create",
         {
           method: "POST",
           headers: {
@@ -222,7 +222,7 @@ export default function RootPage() {
     try {
       const token = localStorage.getItem("auth_token");
       const response = await fetch(
-        `http://localhost:8080/api/v1/conversation/${conversationId}/read`,
+        `https://termi.favrapp.in/api/v1/conversation/${conversationId}/read`,
         {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
