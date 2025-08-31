@@ -1102,7 +1102,7 @@ export default function RootPage() {
               <div className="text-center">
                 <MessageCircle className="w-24 h-24 text-black mx-auto mb-6" />
                 <h2 className="text-3xl font-black text-black mb-4">
-                  WELCOME TO CHAT
+                  WELCOME TO FAFFSAP
                 </h2>
                 <p className="text-lg text-black font-bold mb-6">
                   Select a conversation from the sidebar to start messaging

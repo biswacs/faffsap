@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "fafsap",
+  title: "FAFFSAP",
 };
 
 export default function RootLayout({ children }) {
