@@ -5,7 +5,6 @@ import {
   Message,
   sequelize,
   ReadReceipt,
-  MessageEmbedding,
 } from "../schemas/index.js";
 
 const getUserConversations = async (req, res) => {
@@ -50,7 +49,6 @@ const getUserConversations = async (req, res) => {
 
         const lastMessage = conversation.messages[0];
 
-        // Get unread message count for this conversation using a separate query
         const unreadCount = await Message.count({
           where: {
             conversationId: conversation.id,
@@ -58,7 +56,6 @@ const getUserConversations = async (req, res) => {
           },
         });
 
-        // Get count of messages that have been read by this user
         const readCount = await ReadReceipt.count({
           where: {
             userId: userId,
@@ -140,7 +137,6 @@ const getConversationMessages = async (req, res) => {
       order: [["createdAt", "ASC"]],
     });
 
-    // Get read receipts for all messages in this conversation
     const readReceipts = await ReadReceipt.findAll({
       where: {
         messageId: messages.map((msg) => msg.id),
@@ -148,7 +144,6 @@ const getConversationMessages = async (req, res) => {
       attributes: ["messageId", "userId", "readAt"],
     });
 
-    // Create a map of messageId to read receipts
     const readReceiptsMap = readReceipts.reduce((acc, receipt) => {
       if (!acc[receipt.messageId]) {
         acc[receipt.messageId] = [];
@@ -160,7 +155,6 @@ const getConversationMessages = async (req, res) => {
       return acc;
     }, {});
 
-    // Transform messages to include read receipt information
     const transformedMessages = messages.map((message) => ({
       id: message.id,
       content: message.content,
@@ -313,7 +307,6 @@ const markConversationAsRead = async (req, res) => {
       });
     }
 
-    // Get all unread messages in the conversation for this user
     const unreadMessages = await Message.findAll({
       where: {
         conversationId,
@@ -321,7 +314,6 @@ const markConversationAsRead = async (req, res) => {
       },
     });
 
-    // Get message IDs that already have read receipts for this user
     const existingReadReceipts = await ReadReceipt.findAll({
       where: { userId },
       attributes: ["messageId"],
@@ -331,7 +323,6 @@ const markConversationAsRead = async (req, res) => {
       existingReadReceipts.map((rr) => rr.messageId)
     );
 
-    // Filter out messages that already have read receipts
     const messagesToMark = unreadMessages.filter(
       (msg) => !existingReadMessageIds.has(msg.id)
     );
@@ -375,7 +366,6 @@ const searchMessagesInConversation = async (req, res) => {
       });
     }
 
-    // Check if user is a member of the conversation
     const isMember = await ConversationMember.findOne({
       where: { conversationId, userId },
     });
@@ -387,13 +377,11 @@ const searchMessagesInConversation = async (req, res) => {
       });
     }
 
-    // Get OpenAI API key from environment
     const { OpenAI } = await import("openai");
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
 
-    // Create embedding for the search query
     const embeddingResponse = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: query,
@@ -402,7 +390,6 @@ const searchMessagesInConversation = async (req, res) => {
 
     const queryEmbedding = embeddingResponse.data[0].embedding;
 
-    // Search for similar messages using Typesense
     const { performVectorSearch, messageEmbeddingSchema } = await import(
       "../config/typesense.js"
     );
@@ -422,8 +409,8 @@ const searchMessagesInConversation = async (req, res) => {
         senderId: result.senderId,
         senderName: result.senderName,
         messageType: result.messageType,
-        createdAt: new Date(result.createdAt * 1000), // Convert from Unix timestamp
-        similarity: 1 - (hit.vector_distance || 0), // Convert distance to similarity
+        createdAt: new Date(result.createdAt * 1000),
+        similarity: 1 - (hit.vector_distance || 0),
       };
     });
 
@@ -442,131 +429,12 @@ const searchMessagesInConversation = async (req, res) => {
   }
 };
 
-const searchAllMessages = async (req, res) => {
-  try {
-    const { query } = req.query;
-    const { id: userId } = req.user;
-
-    console.log("query", query);
-
-    if (!query || query.trim().length < 2) {
-      return res.status(400).json({
-        success: false,
-        message: "Search query must be at least 2 characters long",
-      });
-    }
-
-    // Get OpenAI API key from environment
-    const { OpenAI } = await import("openai");
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-
-    // Create embedding for the search query
-    const embeddingResponse = await openai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: query,
-      encoding_format: "float",
-    });
-
-    const queryEmbedding = embeddingResponse.data[0].embedding;
-
-    // Search for similar messages using Typesense
-    const { performVectorSearch, messageEmbeddingSchema } = await import(
-      "../config/typesense.js"
-    );
-
-    // Get user's conversations first
-    const userConversations = await ConversationMember.findAll({
-      where: { userId },
-      include: [
-        {
-          model: Conversation,
-          as: "conversation",
-          attributes: ["id", "type"],
-        },
-      ],
-    });
-
-    const conversationIds = userConversations.map((cm) => cm.conversation.id);
-
-    if (conversationIds.length === 0) {
-      return res.json({
-        success: true,
-        data: [],
-        query,
-        totalConversations: 0,
-        totalMessages: 0,
-      });
-    }
-
-    const searchResults = await performVectorSearch(
-      messageEmbeddingSchema.name,
-      queryEmbedding,
-      { conversationId: `[${conversationIds.join(",")}]` },
-      50
-    );
-
-    // Group results by conversation
-    const groupedResults = searchResults.hits.reduce((acc, hit) => {
-      const result = hit.document;
-      const conversationId = result.conversationId;
-      if (!acc[conversationId]) {
-        acc[conversationId] = {
-          conversationId,
-          conversationType: result.conversationType,
-          messages: [],
-        };
-      }
-
-      acc[conversationId].messages.push({
-        id: result.id,
-        content: result.content,
-        senderId: result.senderId,
-        senderName: result.senderName,
-        messageType: result.messageType,
-        createdAt: new Date(result.createdAt * 1000), // Convert from Unix timestamp
-        similarity: 1 - (hit.vector_distance || 0), // Convert distance to similarity
-      });
-
-      return acc;
-    }, {});
-
-    const transformedResults = Object.values(groupedResults).map(
-      (conversation) => ({
-        conversationId: conversation.conversationId,
-        conversationType: conversation.conversationType,
-        messages: conversation.messages.sort(
-          (a, b) => b.similarity - a.similarity
-        ),
-        totalMessages: conversation.messages.length,
-        bestMatch: conversation.messages[0]?.similarity || 0,
-      })
-    );
-
-    res.json({
-      success: true,
-      data: transformedResults,
-      query,
-      totalConversations: transformedResults.length,
-      totalMessages: searchResults.length,
-    });
-  } catch (error) {
-    console.error("Error searching all messages:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to search messages",
-    });
-  }
-};
-
 const ConversationController = {
   getUserConversations,
   getConversationMessages,
   createPrivateConversation,
   markConversationAsRead,
   searchMessagesInConversation,
-  searchAllMessages,
 };
 
 export default ConversationController;

@@ -18,7 +18,7 @@ const MessageEmbedding = sequelize.define(
       },
     },
     embedding: {
-      type: DataTypes.TEXT, // Store as text, cast to vector in queries
+      type: DataTypes.TEXT,
       allowNull: false,
     },
     content: {

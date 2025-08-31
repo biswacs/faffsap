@@ -4,7 +4,6 @@ import { authMiddleware } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-// Handle preflight OPTIONS requests for all conversation routes
 router.options("*", (req, res) => {
   res.header("Access-Control-Allow-Origin", "https://faffsap.vercel.app");
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
@@ -33,7 +32,6 @@ router.post(
   ConversationController.markConversationAsRead
 );
 
-router.get("/search", authMiddleware, ConversationController.searchAllMessages);
 router.get(
   "/:conversationId/search",
   authMiddleware,

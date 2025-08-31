@@ -34,7 +34,6 @@ ReadReceipt.belongsTo(Message, { foreignKey: "messageId", as: "message" });
 User.hasMany(ReadReceipt, { foreignKey: "userId", as: "readReceipts" });
 ReadReceipt.belongsTo(User, { foreignKey: "userId", as: "user" });
 
-// Message embedding associations
 Message.hasOne(MessageEmbedding, { foreignKey: "messageId", as: "embedding" });
 MessageEmbedding.belongsTo(Message, { foreignKey: "messageId", as: "message" });
 
