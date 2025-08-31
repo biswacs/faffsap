@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  MessageCircle,
+  MessageSquareQuote,
   LogOut,
   User,
   Search,
@@ -973,7 +973,7 @@ export default function RootPage() {
             </h3>
             {conversations.length === 0 ? (
               <div className="text-center py-8">
-                <MessageCircle className="w-16 h-16 text-black mx-auto mb-4" />
+                <MessageSquareQuote className="w-16 h-16 text-black mx-auto mb-6" />
                 <p className="text-black font-bold mb-2">
                   NO CONVERSATIONS YET
                 </p>
@@ -1100,7 +1100,7 @@ export default function RootPage() {
           {!selectedConversation ? (
             <div className="flex-1 flex items-center justify-center p-8">
               <div className="text-center bg-green-300 p-10 rounded-none border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
-                <MessageCircle className="w-24 h-24 text-black mx-auto mb-6" />
+                <MessageSquareQuote className="w-24 h-24 text-black mx-auto mb-6" />
                 <h2 className="text-3xl font-black text-black mb-4">
                   WELCOME TO FAFFSAP
                 </h2>
