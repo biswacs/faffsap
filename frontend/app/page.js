@@ -21,7 +21,8 @@ export default function RootPage() {
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
   const [message, setMessage] = useState("");
-  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
+  const [creatingConversationWith, setCreatingConversationWith] =
+    useState(null);
   const [isConversationSearchOpen, setIsConversationSearchOpen] =
     useState(false);
   const [searchQuery2, setSearchQuery2] = useState("");
@@ -133,8 +134,24 @@ export default function RootPage() {
   };
 
   const startConversation = async (receiverId) => {
+    if (creatingConversationWith === receiverId) {
+      return;
+    }
+
+    const existingConv = conversations.find(
+      (conv) => conv.otherUser?.id === receiverId
+    );
+
+    if (existingConv) {
+      console.log("Conversation already exists, selecting it");
+      setSelectedConversation(existingConv);
+      setShowAllUsers(false);
+      fetchMessages(existingConv.id);
+      return;
+    }
+
     try {
-      setIsCreatingConversation(true);
+      setCreatingConversationWith(receiverId);
       console.log("Starting conversation with user:", receiverId);
       const token = localStorage.getItem("auth_token");
       const response = await fetch(
@@ -154,34 +171,66 @@ export default function RootPage() {
         console.log("Conversation response:", data);
         const conversation = data.data;
 
-        const existingConversation = conversations.find(
-          (conv) => conv.id === conversation.id
-        );
-
-        if (!existingConversation) {
-          setConversations((prev) => [conversation, ...prev]);
-        }
+        setConversations((prev) => {
+          const exists = prev.find((conv) => conv.id === conversation.id);
+          if (!exists) {
+            return [conversation, ...prev];
+          }
+          return prev;
+        });
 
         setSelectedConversation(conversation);
         setMessages([]);
-        setShowNewConversation(false);
         setShowAllUsers(false);
 
         fetchMessages(conversation.id);
       } else {
-        const errorData = await response.json();
+        let errorData;
+        try {
+          errorData = await response.json();
+
+          if (errorData.success && errorData.data) {
+            console.log(
+              "Conversation creation successful despite non-200 status:",
+              errorData
+            );
+            const conversation = errorData.data;
+
+            setConversations((prev) => {
+              const exists = prev.find((conv) => conv.id === conversation.id);
+              if (!exists) {
+                return [conversation, ...prev];
+              }
+              return prev;
+            });
+
+            setSelectedConversation(conversation);
+            setMessages([]);
+            setShowAllUsers(false);
+            fetchMessages(conversation.id);
+            return;
+          }
+        } catch (parseError) {
+          errorData = {
+            message: `HTTP ${response.status}: ${response.statusText}`,
+          };
+        }
+
         console.error("Failed to create conversation:", errorData);
-        alert(
-          `Failed to create conversation: ${
-            errorData.message || "Unknown error"
-          }`
-        );
+
+        if (response.status >= 400) {
+          alert(
+            `Failed to create conversation: ${
+              errorData.message || "Unknown error"
+            }`
+          );
+        }
       }
     } catch (error) {
       console.error("Error starting conversation:", error);
       alert("Failed to create conversation. Please try again.");
     } finally {
-      setIsCreatingConversation(false);
+      setCreatingConversationWith(null);
     }
   };
 
@@ -368,7 +417,6 @@ export default function RootPage() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  // Keep refs updated with latest values
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
@@ -627,6 +675,19 @@ export default function RootPage() {
       });
     });
 
+    newSocket.on("new_conversation", (conversationData) => {
+      console.log("New conversation received:", conversationData);
+
+      setConversations((prev) => {
+        const exists = prev.find((conv) => conv.id === conversationData.id);
+        if (!exists) {
+          console.log("Adding new conversation to list");
+          return [conversationData, ...prev];
+        }
+        return prev;
+      });
+    });
+
     setSocket(newSocket);
 
     return () => {
@@ -825,7 +886,7 @@ export default function RootPage() {
                         <button
                           key={user.id}
                           onClick={() => startConversation(user.id)}
-                          disabled={isCreatingConversation}
+                          disabled={creatingConversationWith === user.id}
                           className="w-full text-left p-3 hover:bg-yellow-200 rounded-none flex items-center space-x-3 disabled:opacity-50 disabled:cursor-not-allowed border-2 border-black bg-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-1 hover:translate-y-1 transition-all duration-200"
                         >
                           <div className="w-8 h-8 bg-gray-300 border-2 border-black rounded-none flex items-center justify-center">
@@ -834,14 +895,14 @@ export default function RootPage() {
                           <div className="flex-1">
                             <p className="text-sm font-black text-black">
                               {user.username}
-                              {isCreatingConversation && " (Creating...)"}
+                              {creatingConversationWith === user.id &&
+                                " (Creating...)"}
                             </p>
                           </div>
                         </button>
                       ))}
                     </div>
 
-                    {/* Pagination Controls */}
                     {totalPages > 1 && (
                       <div className="flex items-center justify-between pt-3 border-t-2 border-black">
                         <button

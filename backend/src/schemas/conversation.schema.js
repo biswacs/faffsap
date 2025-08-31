@@ -3,30 +3,51 @@ import sequelize from "../config/database.js";
 
 class Conversation extends Model {
   // Custom validation to prevent duplicate conversations
-  static async findOrCreatePrivateConversation(userId1, userId2) {
-    const existingConversation = await this.findOne({
+  static async findOrCreatePrivateConversation(
+    userId1,
+    userId2,
+    transaction = null
+  ) {
+    // First, find all private conversations that include both users
+    const existingConversations = await this.findAll({
       include: [
         {
           model: sequelize.models.User,
           as: "members",
           through: { attributes: [] },
-          where: {
-            id: { [sequelize.Sequelize.Op.in]: [userId1, userId2] },
-          },
+          attributes: ["id"],
         },
       ],
       where: { type: "private" },
+      transaction,
     });
 
-    if (existingConversation && existingConversation.members.length === 2) {
-      return [existingConversation, false]; // false means not created
+    // Filter to find a conversation that has exactly these two users
+    const exactMatch = existingConversations.find((conv) => {
+      if (conv.members.length !== 2) return false;
+
+      const memberIds = conv.members.map((member) => member.id);
+      return memberIds.includes(userId1) && memberIds.includes(userId2);
+    });
+
+    if (exactMatch) {
+      console.log(
+        `Found existing conversation ${exactMatch.id} between users ${userId1} and ${userId2}`
+      );
+      return [exactMatch, false]; // false means not created
     }
 
     // Create new conversation
-    const conversation = await this.create({
-      type: "private",
-      lastMessageAt: new Date(),
-    });
+    console.log(
+      `Creating new conversation between users ${userId1} and ${userId2}`
+    );
+    const conversation = await this.create(
+      {
+        type: "private",
+        lastMessageAt: new Date(),
+      },
+      { transaction }
+    );
 
     return [conversation, true]; // true means created
   }

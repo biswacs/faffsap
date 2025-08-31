@@ -6,6 +6,7 @@ import {
   sequelize,
   ReadReceipt,
 } from "../schemas/index.js";
+import { getUserSocketId, getIoInstance } from "../socket/socket.js";
 
 const getUserConversations = async (req, res) => {
   try {
@@ -208,9 +209,12 @@ const createPrivateConversation = async (req, res) => {
       `Checking for existing conversation between users ${userId} and ${receiverId}`
     );
 
-    // Use the new method to find or create conversation
     const [conversation, isNew] =
-      await Conversation.findOrCreatePrivateConversation(userId, receiverId);
+      await Conversation.findOrCreatePrivateConversation(
+        userId,
+        receiverId,
+        transaction
+      );
 
     if (!isNew) {
       console.log(
@@ -223,7 +227,6 @@ const createPrivateConversation = async (req, res) => {
         (member) => member.id !== userId
       );
 
-      // Get the last message for this conversation
       const lastMessage = await Message.findOne({
         where: { conversationId: conversation.id },
         include: [
@@ -236,7 +239,6 @@ const createPrivateConversation = async (req, res) => {
         order: [["createdAt", "DESC"]],
       });
 
-      // Get unread count for this conversation
       const unreadCount = await Message.count({
         where: {
           conversationId: conversation.id,
@@ -293,7 +295,6 @@ const createPrivateConversation = async (req, res) => {
       `Creating new conversation between users ${userId} and ${receiverId}`
     );
 
-    // Add members to the new conversation
     const conversationMembers = [
       { conversationId: conversation.id, userId },
       { conversationId: conversation.id, userId: receiverId },
@@ -322,6 +323,9 @@ const createPrivateConversation = async (req, res) => {
     const otherUser = newConversation.members.find(
       (member) => member.id !== userId
     );
+    const currentUser = newConversation.members.find(
+      (member) => member.id === userId
+    );
 
     const transformedConversation = {
       id: newConversation.id,
@@ -332,7 +336,35 @@ const createPrivateConversation = async (req, res) => {
       },
       lastMessage: null,
       lastMessageAt: newConversation.lastMessageAt,
+      unreadCount: 0,
     };
+
+    // If this is a new conversation, broadcast it to the other user
+    if (isNew) {
+      const io = getIoInstance();
+      if (io) {
+        const conversationForReceiver = {
+          id: newConversation.id,
+          otherUser: {
+            id: currentUser.id,
+            username: currentUser.username,
+            isActive: currentUser.isActive,
+          },
+          lastMessage: null,
+          lastMessageAt: newConversation.lastMessageAt,
+          unreadCount: 0,
+        };
+
+        const receiverSocketId = getUserSocketId(receiverId);
+        if (receiverSocketId) {
+          io.to(receiverSocketId).emit(
+            "new_conversation",
+            conversationForReceiver
+          );
+          console.log(`Broadcasted new conversation to user ${receiverId}`);
+        }
+      }
+    }
 
     res.status(201).json({
       success: true,

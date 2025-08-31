@@ -12,8 +12,10 @@ import { messageEmbeddingQueue } from "../config/queue.js";
 const userSockets = new Map();
 const socketUsers = new Map();
 const onlineUsers = new Set();
+let ioInstance = null;
 
 function socketConnection(io) {
+  ioInstance = io;
   io.use(authenticateSocket);
 
   io.on("connection", (socket) => {
@@ -45,29 +47,45 @@ function socketConnection(io) {
           return;
         }
 
-        const [conversation, isNew] =
-          await Conversation.findOrCreatePrivateConversation(
-            userId,
-            receiverId
-          );
+        // Only find existing conversations, don't create new ones via socket
+        const conversation = await Conversation.findOne({
+          include: [
+            {
+              model: User,
+              as: "members",
+              through: { attributes: [] },
+              where: {
+                id: { [sequelize.Sequelize.Op.in]: [userId, receiverId] },
+              },
+            },
+          ],
+          where: { type: "private" },
+          transaction,
+        });
 
-        if (isNew) {
-          console.log(
-            `Created new conversation ${conversation.id} for users ${userId} and ${receiverId}`
-          );
-
-          await ConversationMember.bulkCreate(
-            [
-              { conversationId: conversation.id, userId },
-              { conversationId: conversation.id, userId: receiverId },
-            ],
-            { transaction }
-          );
-        } else {
-          console.log(
-            `Using existing conversation ${conversation.id} for users ${userId} and ${receiverId}`
-          );
+        // Verify this is a valid conversation with exactly 2 members
+        if (!conversation || conversation.members.length !== 2) {
+          await transaction.rollback();
+          socket.emit("error", {
+            message:
+              "No conversation found. Please create a conversation first.",
+          });
+          return;
         }
+
+        // Verify both users are actually members
+        const memberIds = conversation.members.map((member) => member.id);
+        if (!memberIds.includes(userId) || !memberIds.includes(receiverId)) {
+          await transaction.rollback();
+          socket.emit("error", {
+            message: "Invalid conversation members.",
+          });
+          return;
+        }
+
+        console.log(
+          `Sending message in existing conversation ${conversation.id} between users ${userId} and ${receiverId}`
+        );
 
         const message = await Message.create(
           {
@@ -327,5 +345,6 @@ function socketConnection(io) {
 export const getOnlineUsers = () => Array.from(onlineUsers);
 export const isUserOnline = (userId) => onlineUsers.has(userId);
 export const getUserSocketId = (userId) => userSockets.get(userId);
+export const getIoInstance = () => ioInstance;
 
 export default socketConnection;
