@@ -26,9 +26,6 @@ export default function AuthPage() {
     setLoading(true);
     setMessageText("");
 
-    console.log("BACKEND_URL value:", BACKEND_URL);
-    console.log("BACKEND_URL type:", typeof BACKEND_URL);
-
     try {
       const endpoint = isLogin
         ? `${BACKEND_URL}/api/v1/user/login`
