@@ -39,52 +39,54 @@ function socketConnection(io) {
       const transaction = await sequelize.transaction();
 
       try {
-        const { receiverId, content, messageType = "text" } = data;
+        const {
+          receiverId,
+          content,
+          conversationId,
+          messageType = "text",
+        } = data;
 
-        if (!receiverId || !content) {
+        if (!receiverId || !content || !conversationId) {
           await transaction.rollback();
           socket.emit("error", { message: "Missing required fields" });
           return;
         }
 
-        // Only find existing conversations, don't create new ones via socket
         const conversation = await Conversation.findOne({
           include: [
             {
               model: User,
               as: "members",
               through: { attributes: [] },
-              where: {
-                id: { [sequelize.Sequelize.Op.in]: [userId, receiverId] },
-              },
+              attributes: ["id"],
             },
           ],
-          where: { type: "private" },
+          where: {
+            id: conversationId,
+            type: "private",
+          },
           transaction,
         });
 
-        // Verify this is a valid conversation with exactly 2 members
-        if (!conversation || conversation.members.length !== 2) {
+        if (!conversation) {
           await transaction.rollback();
           socket.emit("error", {
-            message:
-              "No conversation found. Please create a conversation first.",
+            message: "Conversation not found.",
           });
           return;
         }
 
-        // Verify both users are actually members
         const memberIds = conversation.members.map((member) => member.id);
-        if (!memberIds.includes(userId) || !memberIds.includes(receiverId)) {
+        if (!memberIds.includes(userId)) {
           await transaction.rollback();
           socket.emit("error", {
-            message: "Invalid conversation members.",
+            message: "You are not a member of this conversation.",
           });
           return;
         }
 
         console.log(
-          `Sending message in existing conversation ${conversation.id} between users ${userId} and ${receiverId}`
+          `Sending message in conversation ${conversation.id} from user ${userId}`
         );
 
         const message = await Message.create(

@@ -9,7 +9,6 @@ import {
   Check,
   CheckCheck,
   X,
-  Plus,
   ArrowLeft,
 } from "lucide-react";
 import { io } from "socket.io-client";
@@ -36,7 +35,9 @@ export default function RootPage() {
   const [totalUsers, setTotalUsers] = useState(0);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [showAllUsers, setShowAllUsers] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
   const messagesEndRef = useRef(null);
+  const messageRefs = useRef({});
   const selectedConversationRef = useRef(selectedConversation);
   const conversationsRef = useRef(conversations);
 
@@ -256,9 +257,10 @@ export default function RootPage() {
     socket.emit("send_message", {
       receiverId,
       content: message.trim(),
+      conversationId: selectedConversation.id,
     });
 
-    socket.emit("stop_typing", { receiverId });
+    socket.emit("typing_stop", { receiverId });
 
     setTimeout(() => {
       setMessages((prev) =>
@@ -272,13 +274,13 @@ export default function RootPage() {
 
     if (!socket || !selectedConversation?.otherUser?.id) return;
 
-    socket.emit("typing", {
+    socket.emit("typing_start", {
       receiverId: selectedConversation.otherUser.id,
     });
 
     clearTimeout(window.typingTimeout);
     window.typingTimeout = setTimeout(() => {
-      socket.emit("stop_typing", {
+      socket.emit("typing_stop", {
         receiverId: selectedConversation.otherUser.id,
       });
     }, 2000);
@@ -288,6 +290,10 @@ export default function RootPage() {
     console.log("Selecting conversation:", conversation);
     console.log("Conversation ID:", conversation.id);
     console.log("Conversation ID type:", typeof conversation.id);
+
+    // Clear typing indicators when switching conversations
+    setTypingUsers(new Set());
+
     setSelectedConversation(conversation);
     await fetchMessages(conversation.id);
 
@@ -345,6 +351,28 @@ export default function RootPage() {
     setIsConversationSearchOpen(false);
   };
 
+  const handleSearchResultClick = (messageId) => {
+    setIsConversationSearchOpen(false);
+
+    setHighlightedMessageId(null);
+
+    setTimeout(() => {
+      const messageElement = messageRefs.current[messageId];
+      if (messageElement) {
+        messageElement.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+
+        setHighlightedMessageId(messageId);
+
+        setTimeout(() => {
+          setHighlightedMessageId(null);
+        }, 3000);
+      }
+    }, 300);
+  };
+
   const performSearch = useCallback(async () => {
     if (!searchQuery2.trim() || searchQuery2.trim().length < 2) return;
 
@@ -357,13 +385,9 @@ export default function RootPage() {
         return;
       }
 
-      const endpoint = selectedConversation
-        ? `${BACKEND_URL}/api/v1/conversation/${
-            selectedConversation.id
-          }/search?query=${encodeURIComponent(searchQuery2)}`
-        : `${BACKEND_URL}/api/v1/conversation/search?query=${encodeURIComponent(
-            searchQuery2
-          )}`;
+      const endpoint = `${BACKEND_URL}/api/v1/conversation/${
+        selectedConversation.id
+      }/search?query=${encodeURIComponent(searchQuery2)}`;
 
       const response = await fetch(endpoint, {
         method: "GET",
@@ -371,7 +395,6 @@ export default function RootPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        credentials: "include",
       });
 
       if (response.ok) {
@@ -664,7 +687,14 @@ export default function RootPage() {
     });
 
     newSocket.on("user_typing", (data) => {
-      setTypingUsers((prev) => new Set(prev).add(data.username));
+      // Only show typing indicator if it's from the current conversation partner
+      const currentConversation = selectedConversationRef.current;
+      if (
+        currentConversation &&
+        data.userId === currentConversation.otherUser?.id
+      ) {
+        setTypingUsers((prev) => new Set(prev).add(data.username));
+      }
     });
 
     newSocket.on("user_stop_typing", (data) => {
@@ -756,7 +786,8 @@ export default function RootPage() {
       return searchResults2.map((message) => (
         <div
           key={message.id}
-          className="p-4 border-b-4 border-black bg-white hover:bg-yellow-100 transition-colors shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-1 hover:translate-y-1"
+          className="p-4 border-b-4 border-black bg-white hover:bg-yellow-100 transition-colors shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-1 hover:translate-y-1 cursor-pointer"
+          onClick={() => handleSearchResultClick(message.id)}
         >
           <div className="flex items-start space-x-3">
             <div className="w-8 h-8 bg-blue-500 border-2 border-black rounded-none flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
@@ -798,7 +829,11 @@ export default function RootPage() {
           </div>
           <div className="divide-y-2 divide-black">
             {conversation.messages.slice(0, 3).map((message) => (
-              <div key={message.id} className="p-4">
+              <div
+                key={message.id}
+                className="p-4 hover:bg-yellow-50 cursor-pointer transition-colors"
+                onClick={() => handleSearchResultClick(message.id)}
+              >
                 <div className="flex items-start space-x-3">
                   <div className="w-6 h-6 bg-blue-500 border-2 border-black rounded-none flex items-center justify-center shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
                     <User className="w-3 h-3 text-white" />
@@ -1084,7 +1119,6 @@ export default function RootPage() {
               </div>
             </div>
           ) : (
-            /* Chat Interface */
             <div className="flex-1 flex flex-col bg-white h-full">
               <div className="bg-yellow-300 border-b-4 border-black p-4 flex-shrink-0">
                 <div className="flex items-center space-x-4">
@@ -1103,7 +1137,10 @@ export default function RootPage() {
                         "Unknown User"}
                     </h3>
                     {typingUsers.size > 0 && (
-                      <p className="text-sm text-black font-bold">typing...</p>
+                      <p className="text-sm text-black font-bold">
+                        {Array.from(typingUsers).join(", ")}{" "}
+                        {typingUsers.size === 1 ? "is" : "are"} typing...
+                      </p>
                     )}
                   </div>
                   <button
@@ -1123,13 +1160,28 @@ export default function RootPage() {
                     className={`flex ${
                       msg.senderId === user.id ? "justify-end" : "justify-start"
                     }`}
+                    ref={(el) => {
+                      if (el && msg.id) {
+                        messageRefs.current[msg.id] = el;
+                      }
+                    }}
                   >
                     <div
                       className={`max-w-xs lg:max-w-md px-4 py-3 rounded-none border-4 border-black ${
                         msg.senderId === user.id
                           ? "bg-blue-500 text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
                           : "bg-white text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-                      } ${msg.isTemp ? "opacity-70" : ""}`}
+                      } ${msg.isTemp ? "opacity-70" : ""} ${
+                        highlightedMessageId === msg.id
+                          ? "animate-pulse bg-yellow-300 border-yellow-600"
+                          : ""
+                      } transition-all duration-300`}
+                      style={{
+                        animation:
+                          highlightedMessageId === msg.id
+                            ? "shake 0.5s ease-in-out 0s 3, highlight-fade 3s ease-in-out"
+                            : undefined,
+                      }}
                     >
                       <p className="text-sm font-bold">{msg.content}</p>
                       <div className="flex items-center justify-between mt-2">

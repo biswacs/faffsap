@@ -1,16 +1,14 @@
 @import "tailwindcss";
 
-/* Hide scrollbars for webkit browsers */
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
 }
 
 .hide-scrollbar {
-  -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-/* Custom scrollbar styling for when you want to show them */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }
@@ -26,4 +24,35 @@
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.4);
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: translateX(-2px);
+  }
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@keyframes highlight-fade {
+  0% {
+    background-color: rgb(253 224 71);
+    border-color: rgb(202 138 4);
+  }
+  100% {
+    background-color: initial;
+    border-color: initial;
+  }
 }

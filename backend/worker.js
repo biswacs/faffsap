@@ -18,7 +18,6 @@ process.on("SIGTERM", async () => {
   process.exit(0);
 });
 
-// Log queue events
 messageEmbeddingQueue.on("waiting", (jobId) => {
   console.log(`Job ${jobId} is waiting`);
 });
