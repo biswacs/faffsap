@@ -45,14 +45,3 @@
     transform: translateX(2px);
   }
 }
-
-@keyframes highlight-fade {
-  0% {
-    background-color: rgb(253 224 71);
-    border-color: rgb(202 138 4);
-  }
-  100% {
-    background-color: initial;
-    border-color: initial;
-  }
-}

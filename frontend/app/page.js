@@ -1099,7 +1099,7 @@ export default function RootPage() {
         <div className="flex-1 flex flex-col">
           {!selectedConversation ? (
             <div className="flex-1 flex items-center justify-center p-8">
-              <div className="text-center">
+              <div className="text-center bg-green-300 p-10 rounded-none border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
                 <MessageCircle className="w-24 h-24 text-black mx-auto mb-6" />
                 <h2 className="text-3xl font-black text-black mb-4">
                   WELCOME TO FAFFSAP
@@ -1179,7 +1179,7 @@ export default function RootPage() {
                       style={{
                         animation:
                           highlightedMessageId === msg.id
-                            ? "shake 0.5s ease-in-out 0s 3, highlight-fade 3s ease-in-out"
+                            ? "shake 0.5s ease-in-out 0s 3, 3s ease-in-out"
                             : undefined,
                       }}
                     >
@@ -1234,7 +1234,7 @@ export default function RootPage() {
       </div>
 
       {isConversationSearchOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-white/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] w-full max-w-2xl max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between p-4 border-b-4 border-black bg-yellow-300">
               <div className="flex items-center space-x-3">
