@@ -52,7 +52,7 @@ const UserController = {
         res.status(500).json({ message: "failed to create user" });
       }
     } catch (error) {
-      console.log(error);           
+      console.log(error);
       res.status(500).json({ message: "internal server error" });
     }
   },
@@ -146,46 +146,46 @@ const UserController = {
     }
   },
 
-  async searchUsers(req, res) {
+  async getAllUsers(req, res) {
     try {
-      const { username } = req.query;
       const currentUserId = req.user.id;
-
-      if (!username || username.trim().length === 0) {
-        return res.status(400).json({
-          message: "username parameter is required",
-        });
-      }
-
-      const usernameRegex = /^[a-z0-9_]+$/;
-      if (!usernameRegex.test(username)) {
-        return res.status(400).json({
-          message:
-            "username can only contain lowercase letters, numbers 0-9, and underscores",
-        });
-      }
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const offset = (page - 1) * limit;
 
       try {
-        const users = await User.findAll({
+        const { count, rows: users } = await User.findAndCountAll({
           where: {
             id: { [Op.ne]: currentUserId },
             isActive: true,
-            username: {
-              [Op.iLike]: `%${username.trim()}%`,
-            },
           },
           attributes: ["id", "username", "isActive", "createdAt", "updatedAt"],
           order: [["username", "ASC"]],
-          limit: 10,
+          limit,
+          offset,
         });
 
+        const totalPages = Math.ceil(count / limit);
+        const hasNextPage = page < totalPages;
+        const hasPrevPage = page > 1;
+
         res.json({
-          message: "users found successfully",
-          data: users,
+          message: "users retrieved successfully",
+          data: {
+            users,
+            pagination: {
+              currentPage: page,
+              totalPages,
+              totalUsers: count,
+              usersPerPage: limit,
+              hasNextPage,
+              hasPrevPage,
+            },
+          },
         });
       } catch (error) {
         console.log(error);
-        res.status(500).json({ message: "failed to search users" });
+        res.status(500).json({ message: "failed to retrieve users" });
       }
     } catch (error) {
       console.log(error);

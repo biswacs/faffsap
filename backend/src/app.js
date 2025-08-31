@@ -18,18 +18,18 @@ const server = createServer(app);
 const io = new Server(server, {
   cors: {
     origin: "*",
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
   },
 });
 
 app.use(express.json());
 app.use(
   cors({
-    origin: ["https://faffsap.vercel.app"],
+    origin: "*",
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 app.use(memoryMonitor);

@@ -1,7 +1,7 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { BACKEND_URL } from "../../config";
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -26,10 +26,13 @@ export default function AuthPage() {
     setLoading(true);
     setMessageText("");
 
+    console.log("BACKEND_URL value:", BACKEND_URL);
+    console.log("BACKEND_URL type:", typeof BACKEND_URL);
+
     try {
       const endpoint = isLogin
-        ? "https://termi.favrapp.in/api/v1/user/login"
-        : "https://termi.favrapp.in/api/v1/user/register";
+        ? `${BACKEND_URL}/api/v1/user/login`
+        : `${BACKEND_URL}/api/v1/user/register`;
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -65,30 +68,32 @@ export default function AuthPage() {
 
   if (checkingAuth) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-yellow-300 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Checking authentication...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-b-4 border-black mx-auto bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"></div>
+          <p className="mt-6 text-black font-bold text-lg">
+            Checking authentication...
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">
-          {isLogin ? "Login" : "Register"}
+    <div className="min-h-screen bg-yellow-300 flex items-center justify-center p-4">
+      <div className="bg-white p-10 rounded-none border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] w-full max-w-md transform hover:translate-x-1 hover:translate-y-1 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all duration-200">
+        <h2 className="text-4xl font-black text-black mb-8 text-center tracking-tight">
+          {isLogin ? "LOGIN" : "REGISTER"}
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <input
               type="text"
-              placeholder="Username"
+              placeholder="USERNAME"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full p-4 border-4 border-black rounded-none bg-yellow-100 focus:bg-white focus:outline-none focus:ring-0 focus:border-black font-bold text-black placeholder-black/60 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-1 hover:translate-y-1 transition-all duration-200"
               required
             />
           </div>
@@ -96,18 +101,20 @@ export default function AuthPage() {
           <div>
             <input
               type="password"
-              placeholder="Password"
+              placeholder="PASSWORD"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full p-4 border-4 border-black rounded-none bg-yellow-100 focus:bg-white focus:outline-none focus:ring-0 focus:border-black font-bold text-black placeholder-black/60 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-1 hover:translate-y-1 transition-all duration-200"
               required
             />
           </div>
 
           {messageText && (
             <div
-              className={`text-sm ${
-                messageText === "Success!" ? "text-green-600" : "text-red-600"
+              className={`text-lg font-bold p-3 border-4 border-black ${
+                messageText === "Success!"
+                  ? "bg-green-400 text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+                  : "bg-red-400 text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
               }`}
             >
               {messageText}
@@ -117,18 +124,18 @@ export default function AuthPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50"
+            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-black py-4 border-4 border-black rounded-none transition-all duration-200 disabled:opacity-50 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-1 hover:translate-y-1 active:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-1 active:translate-y-1 text-xl tracking-wide"
           >
-            {loading ? "Loading..." : isLogin ? "Login" : "Register"}
+            {loading ? "LOADING..." : isLogin ? "LOGIN" : "REGISTER"}
           </button>
         </form>
 
-        <div className="mt-6 text-center">
+        <div className="mt-8 text-center">
           <button
             onClick={toggleMode}
-            className="text-blue-600 hover:text-blue-800 text-sm underline"
+            className="text-black hover:text-blue-600 font-bold text-lg underline decoration-4 underline-offset-4 hover:decoration-blue-600 transition-all duration-200"
           >
-            {isLogin ? "Need an account? Register" : "Have an account? Login"}
+            {isLogin ? "Need an account? REGISTER" : "Have an account? LOGIN"}
           </button>
         </div>
       </div>

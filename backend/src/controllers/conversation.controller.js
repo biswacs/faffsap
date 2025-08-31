@@ -72,7 +72,7 @@ const getUserConversations = async (req, res) => {
           ],
         });
 
-        const actualUnreadCount = unreadCount - readCount;
+        const actualUnreadCount = Math.max(0, unreadCount - readCount);
 
         return {
           id: conversation.id,
@@ -182,11 +182,14 @@ const getConversationMessages = async (req, res) => {
 };
 
 const createPrivateConversation = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
   try {
     const { receiverId } = req.body;
     const { id: userId } = req.user;
 
     if (!receiverId) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "Receiver ID is required",
@@ -194,42 +197,89 @@ const createPrivateConversation = async (req, res) => {
     }
 
     if (receiverId === userId) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "Cannot create conversation with yourself",
       });
     }
 
-    const existingConversation = await Conversation.findOne({
-      include: [
-        {
-          model: User,
-          as: "members",
-          through: { attributes: [] },
-          where: {
-            id: { [sequelize.Sequelize.Op.in]: [userId, receiverId] },
-          },
-        },
-      ],
-      where: { type: "private" },
-    });
+    console.log(
+      `Checking for existing conversation between users ${userId} and ${receiverId}`
+    );
 
-    const hasExactlyTwoMembers = existingConversation?.members?.length === 2;
+    // Use the new method to find or create conversation
+    const [conversation, isNew] =
+      await Conversation.findOrCreatePrivateConversation(userId, receiverId);
 
-    if (existingConversation && hasExactlyTwoMembers) {
-      const otherUser = existingConversation.members.find(
+    if (!isNew) {
+      console.log(
+        `Found existing conversation ${conversation.id} for users ${userId} and ${receiverId}`
+      );
+
+      await transaction.commit();
+
+      const otherUser = conversation.members.find(
         (member) => member.id !== userId
       );
 
+      // Get the last message for this conversation
+      const lastMessage = await Message.findOne({
+        where: { conversationId: conversation.id },
+        include: [
+          {
+            model: User,
+            as: "sender",
+            attributes: ["id", "username"],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+      });
+
+      // Get unread count for this conversation
+      const unreadCount = await Message.count({
+        where: {
+          conversationId: conversation.id,
+          senderId: { [sequelize.Sequelize.Op.ne]: userId },
+        },
+      });
+
+      const readCount = await ReadReceipt.count({
+        where: {
+          userId: userId,
+        },
+        include: [
+          {
+            model: Message,
+            as: "message",
+            where: {
+              conversationId: conversation.id,
+              senderId: { [sequelize.Sequelize.Op.ne]: userId },
+            },
+          },
+        ],
+      });
+
+      const actualUnreadCount = Math.max(0, unreadCount - readCount);
+
       const transformedConversation = {
-        id: existingConversation.id,
+        id: conversation.id,
         otherUser: {
           id: otherUser.id,
           username: otherUser.username,
           isActive: otherUser.isActive,
         },
-        lastMessage: null,
-        lastMessageAt: existingConversation.lastMessageAt,
+        lastMessage: lastMessage
+          ? {
+              id: lastMessage.id,
+              content: lastMessage.content,
+              senderId: lastMessage.senderId,
+              senderName: lastMessage.sender.username,
+              createdAt: lastMessage.createdAt,
+            }
+          : null,
+        lastMessageAt: conversation.lastMessageAt,
+        unreadCount: actualUnreadCount,
       };
 
       return res.json({
@@ -239,17 +289,24 @@ const createPrivateConversation = async (req, res) => {
       });
     }
 
-    const conversation = await Conversation.create({
-      type: "private",
-      lastMessageAt: new Date(),
-    });
+    console.log(
+      `Creating new conversation between users ${userId} and ${receiverId}`
+    );
 
+    // Add members to the new conversation
     const conversationMembers = [
       { conversationId: conversation.id, userId },
       { conversationId: conversation.id, userId: receiverId },
     ];
 
-    await ConversationMember.bulkCreate(conversationMembers);
+    await ConversationMember.bulkCreate(conversationMembers, { transaction });
+
+    console.log(
+      `Created new conversation ${conversation.id} with members:`,
+      conversationMembers
+    );
+
+    await transaction.commit();
 
     const newConversation = await Conversation.findByPk(conversation.id, {
       include: [
@@ -283,10 +340,12 @@ const createPrivateConversation = async (req, res) => {
       isNew: true,
     });
   } catch (error) {
+    await transaction.rollback();
     console.error("Error creating conversation:", error);
     res.status(500).json({
       success: false,
       message: "Failed to create conversation",
+      error: error.message,
     });
   }
 };

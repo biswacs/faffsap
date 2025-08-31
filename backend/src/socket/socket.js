@@ -34,48 +34,51 @@ function socketConnection(io) {
     });
 
     socket.on("send_message", async (data) => {
+      const transaction = await sequelize.transaction();
+
       try {
         const { receiverId, content, messageType = "text" } = data;
 
         if (!receiverId || !content) {
+          await transaction.rollback();
           socket.emit("error", { message: "Missing required fields" });
           return;
         }
 
-        let conversation = await Conversation.findOne({
-          include: [
-            {
-              model: User,
-              as: "members",
-              through: { attributes: [] },
-              where: {
-                id: { [sequelize.Sequelize.Op.in]: [userId, receiverId] },
-              },
-            },
-          ],
-          where: { type: "private" },
-        });
+        const [conversation, isNew] =
+          await Conversation.findOrCreatePrivateConversation(
+            userId,
+            receiverId
+          );
 
-        if (!conversation || conversation.members.length !== 2) {
-          conversation = await Conversation.create({
-            type: "private",
-            lastMessageAt: new Date(),
-          });
+        if (isNew) {
+          console.log(
+            `Created new conversation ${conversation.id} for users ${userId} and ${receiverId}`
+          );
 
-          await ConversationMember.bulkCreate([
-            { conversationId: conversation.id, userId },
-            { conversationId: conversation.id, userId: receiverId },
-          ]);
+          await ConversationMember.bulkCreate(
+            [
+              { conversationId: conversation.id, userId },
+              { conversationId: conversation.id, userId: receiverId },
+            ],
+            { transaction }
+          );
+        } else {
+          console.log(
+            `Using existing conversation ${conversation.id} for users ${userId} and ${receiverId}`
+          );
         }
 
-        const message = await Message.create({
-          conversationId: conversation.id,
-          senderId: userId,
-          content,
-          messageType,
-        });
+        const message = await Message.create(
+          {
+            conversationId: conversation.id,
+            senderId: userId,
+            content,
+            messageType,
+          },
+          { transaction }
+        );
 
-        // Add message to embedding queue for semantic search
         if (messageType === "text") {
           await messageEmbeddingQueue.add({
             messageId: message.id,
@@ -86,8 +89,10 @@ function socketConnection(io) {
 
         await Conversation.update(
           { lastMessageAt: new Date() },
-          { where: { id: conversation.id } }
+          { where: { id: conversation.id }, transaction }
         );
+
+        await transaction.commit();
 
         const messageData = {
           id: message.id,
@@ -108,18 +113,23 @@ function socketConnection(io) {
           io.to(receiverSocketId).emit("receive_message", messageData);
         }
 
-        io.to(`user_${userId}`).emit("conversation_updated", {
+        const conversationUpdateData = {
           conversationId: conversation.id,
           lastMessage: messageData,
-        });
+        };
 
+        io.to(`user_${userId}`).emit(
+          "conversation_updated",
+          conversationUpdateData
+        );
         if (receiverSocketId) {
-          io.to(`user_${receiverId}`).emit("conversation_updated", {
-            conversationId: conversation.id,
-            lastMessage: messageData,
-          });
+          io.to(`user_${receiverId}`).emit(
+            "conversation_updated",
+            conversationUpdateData
+          );
         }
       } catch (error) {
+        await transaction.rollback();
         console.error("Error sending message:", error);
         socket.emit("error", { message: "Failed to send message" });
       }
@@ -153,7 +163,6 @@ function socketConnection(io) {
           `Attempting to mark message ${messageId} as read by user ${userId} in conversation ${conversationId}`
         );
 
-        // Validate input data
         if (!messageId || !conversationId) {
           console.error("Missing required data:", {
             messageId,
@@ -165,7 +174,6 @@ function socketConnection(io) {
           return;
         }
 
-        // Check if the message exists and get the sender
         const message = await Message.findByPk(messageId);
         if (!message) {
           console.error(`Message ${messageId} not found`);
@@ -173,7 +181,6 @@ function socketConnection(io) {
           return;
         }
 
-        // Check if user is a member of the conversation
         const isMember = await ConversationMember.findOne({
           where: { conversationId, userId },
         });
@@ -189,7 +196,6 @@ function socketConnection(io) {
 
         console.log("Creating/updating read receipt...");
 
-        // Create or update read receipt
         const [readReceipt, created] = await ReadReceipt.findOrCreate({
           where: { messageId, userId },
           defaults: { readAt: new Date() },
@@ -197,7 +203,7 @@ function socketConnection(io) {
 
         if (!created) {
           console.log("Updating existing read receipt");
-          // Update existing read receipt
+
           await readReceipt.update({ readAt: new Date() });
         } else {
           console.log("Created new read receipt");
@@ -208,7 +214,6 @@ function socketConnection(io) {
           readReceipt.readAt
         );
 
-        // Find the sender's socket and emit message_read directly to them
         const senderSocketId = userSockets.get(message.senderId);
         if (senderSocketId) {
           console.log(
@@ -243,7 +248,6 @@ function socketConnection(io) {
           `Marking all messages in conversation ${conversationId} as read by user ${userId}`
         );
 
-        // Get all unread messages in the conversation for this user
         const unreadMessages = await Message.findAll({
           where: {
             conversationId,
@@ -258,7 +262,6 @@ function socketConnection(io) {
           ],
         });
 
-        // Mark all unread messages as read
         const messagesToMark = unreadMessages.filter(
           (msg) => !msg.ReadReceipts || msg.ReadReceipts.length === 0
         );
@@ -274,7 +277,6 @@ function socketConnection(io) {
             ignoreDuplicates: true,
           });
 
-          // Emit read receipts directly to each sender
           messagesToMark.forEach((msg) => {
             const senderSocketId = userSockets.get(msg.senderId);
             if (senderSocketId) {

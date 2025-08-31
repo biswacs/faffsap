@@ -1,7 +1,36 @@
 import { Model, DataTypes } from "sequelize";
 import sequelize from "../config/database.js";
 
-class Conversation extends Model {}
+class Conversation extends Model {
+  // Custom validation to prevent duplicate conversations
+  static async findOrCreatePrivateConversation(userId1, userId2) {
+    const existingConversation = await this.findOne({
+      include: [
+        {
+          model: sequelize.models.User,
+          as: "members",
+          through: { attributes: [] },
+          where: {
+            id: { [sequelize.Sequelize.Op.in]: [userId1, userId2] },
+          },
+        },
+      ],
+      where: { type: "private" },
+    });
+
+    if (existingConversation && existingConversation.members.length === 2) {
+      return [existingConversation, false]; // false means not created
+    }
+
+    // Create new conversation
+    const conversation = await this.create({
+      type: "private",
+      lastMessageAt: new Date(),
+    });
+
+    return [conversation, true]; // true means created
+  }
+}
 
 Conversation.init(
   {
