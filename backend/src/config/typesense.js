@@ -53,68 +53,7 @@ export const performVectorSearch = async (
   const searchResults = await typesenseClient.multiSearch.perform(
     multiSearchParams
   );
-  return searchResults.results[0];
-};
 
-export const performHybridSearch = async (
-  collectionName,
-  queryText,
-  queryEmbedding,
-  filters = {},
-  limit = 20
-) => {
-  const searchRequest = {
-    collection: collectionName,
-    q: queryText,
-    query_by: "content",
-    vector_query: `embedding:([${queryEmbedding.join(",")}], k: ${limit})`,
-    filter_by: Object.entries(filters)
-      .map(([key, value]) => `${key}:=${value}`)
-      .join(" && "),
-    sort_by: "_text_match:desc,_vector_distance:asc",
-    per_page: limit,
-    text_query_weight: 0.7,
-    vector_query_weight: 0.3,
-    highlight_full_fields: "content",
-    snippet_threshold: 0,
-  };
-
-  const multiSearchParams = {
-    searches: [searchRequest],
-  };
-
-  const searchResults = await typesenseClient.multiSearch.perform(
-    multiSearchParams
-  );
-  return searchResults.results[0];
-};
-
-export const performTextSearch = async (
-  collectionName,
-  queryText,
-  filters = {},
-  limit = 20
-) => {
-  const searchRequest = {
-    collection: collectionName,
-    q: queryText,
-    query_by: "content",
-    filter_by: Object.entries(filters)
-      .map(([key, value]) => `${key}:=${value}`)
-      .join(" && "),
-    sort_by: "_text_match:desc,createdAt:desc",
-    per_page: limit,
-    highlight_full_fields: "content",
-    snippet_threshold: 0,
-  };
-
-  const multiSearchParams = {
-    searches: [searchRequest],
-  };
-
-  const searchResults = await typesenseClient.multiSearch.perform(
-    multiSearchParams
-  );
   return searchResults.results[0];
 };
 

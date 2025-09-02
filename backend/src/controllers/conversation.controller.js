@@ -447,7 +447,7 @@ const markConversationAsRead = async (req, res) => {
 const searchMessagesInConversation = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const { query } = req.query;
+    const { query, limit } = req.query;
     const { id: userId } = req.user;
 
     if (!query || query.trim().length < 2) {
@@ -492,7 +492,7 @@ const searchMessagesInConversation = async (req, res) => {
       20
     );
 
-    const transformedResults = searchResults.hits.map((hit) => {
+    const allResults = searchResults.hits.map((hit) => {
       const result = hit.document;
       return {
         id: result.id,
@@ -505,11 +505,19 @@ const searchMessagesInConversation = async (req, res) => {
       };
     });
 
+    const topResultsLimit = limit ? parseInt(limit) : 1;
+    const transformedResults = allResults
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, Math.min(topResultsLimit, allResults.length));
+
     res.json({
       success: true,
       data: transformedResults,
       query,
       totalResults: transformedResults.length,
+      topResultsLimit: topResultsLimit,
+      highestSimilarity:
+        transformedResults.length > 0 ? transformedResults[0].similarity : 0,
     });
   } catch (error) {
     console.error("Error searching messages in conversation:", error);
